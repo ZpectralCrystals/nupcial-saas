@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nupcial — Flujos y estructura del sistema</title>
+  <meta name="description" content="Mapa funcional de Nupcial: recorrido público, paletas, módulos cliente, cardinalidad de datos y arquitectura pendiente.">
+  <link rel="stylesheet" href="system-map.css">
+</head>
+<body>
+  <header class="top"><a href="../index.html#/home" class="brand">nupcial<span> / sistema</span></a><div><a href="database.md">Base de datos ↗</a><a href="architecture.md">Arquitectura ↗</a><a href="client-audit.md">Inventario cliente ↗</a><a href="../index.html#/bodas">Probar diseños ↗</a><button id="print">Imprimir / PDF</button></div></header>
+  <main>
+    <div class="intro"><div><p class="eyebrow">ESTRUCTURA ANTES QUE FOTOGRAFÍAS</p><h1>Cómo se conecta<br>todo el sistema.</h1></div><p>Del catálogo al evento.<br>Diecisiete mapas, relaciones y límites comprobables.</p></div>
+    <div class="notice"><strong>Estado real:</strong> cada mapa identifica su evidencia. Azul = interfaz de referencia observada; verde = comportamiento local implementado; discontinuo = no verificado o propuesta. Ver controles no prueba que se hayan guardado ni revela la lógica interna del servidor.</div>
+    <nav class="tabs" aria-label="Diagramas del sistema"></nav>
+    <section class="diagram-section" aria-labelledby="diagram-title">
+      <div class="diagram-head"><div><p id="diagram-kicker" class="eyebrow"></p><h2 id="diagram-title"></h2><p id="diagram-description"></p></div><div class="tools"><button id="zoom-out" aria-label="Reducir diagrama">−</button><output id="zoom-level">Ajustado</output><button id="zoom-in" aria-label="Ampliar diagrama">＋</button><button id="fit">Ajustar</button><button id="download-svg">Descargar SVG</button><button id="download-source">Mermaid editable</button></div></div>
+      <div class="legend"><span><i class="observed" style="background:#e9f1f8;border-color:#64829d"></i>UI de referencia observada</span><span><i class="local"></i>Función local</span><span><i class="decision"></i>Decisión / validación</span><span><i class="pending"></i>No verificado / pendiente</span><span>Flechas: secuencia o relación de datos.</span></div>
+      <div class="canvas" id="canvas" tabindex="0" role="region" aria-label="Diagrama ampliable con desplazamiento"></div>
+      <div class="notes" id="diagram-notes"></div>
+      <details class="source"><summary>Ver flujo como texto / código Mermaid</summary><pre id="source"></pre></details>
+    </section>
+    <section class="palette-section" aria-labelledby="palette-title"><div><p class="eyebrow">UN SOLO CONTRATO DE DISEÑO</p><h2 id="palette-title">La paleta viaja.<br>La estructura permanece.</h2><p>Selecciona un color. Se aplicará al fondo, texto, botones y adornos del ejemplo, sin cambiar sus datos ni sus pasos.</p><p class="small">Nombres observados en la referencia. HEX de nuestra implementación; no son una extracción oficial de sus estilos.</p></div><div><div id="palette-choices" class="palette-choices" role="group" aria-label="Nueve paletas"></div><div id="palette-preview"><span>DEMOSTRACIÓN SIN FOTOS</span><h3>Valentina <i>&</i> Mateo</h3><p>18 de septiembre de 2027</p><div class="sample-rule"></div><p>Ceremonia · Confirmación · Recuerdos</p><button type="button" id="palette-try">Probar este diseño ↗</button></div><div id="palette-tokens" class="tokens"></div></div></section>
+    <section class="routes"><p class="eyebrow">PANTALLAS CONECTADAS</p><h2>Mapa de navegación</h2><div class="route-grid"><div><h3>Visitante</h3><a href="../index.html#/home">Inicio</a><a href="../index.html#/bodas">Diseños de boda</a><a href="../index.html#/plans">Planes de demostración</a><a href="../index.html#/playground?tema=versalles&paleta=dorado">Probador de diseño y paleta</a><a href="../index.html#/start?tema=versalles&paleta=dorado&plan=premium">Configurar evento</a></div><div><h3>Cliente</h3><a href="../index.html#/login">Acceso demo</a><a href="../index.html#/dashboard">Resumen</a><a href="../index.html#/invitation">Editor de invitación</a><a href="../index.html#/guests">Invitados / CSV</a><a href="../index.html#/rsvp">Confirmaciones</a><a href="../index.html#/tables">Mesas</a><a href="../index.html#/songs">Canciones</a><a href="../index.html#/gallery">Galería</a><a href="../index.html#/settings">Respaldo / configuración</a></div><div><h3>Invitado</h3><a href="../index.html#/public">Invitación general local</a><p>Enlace personal: <code>#/public?guest=código</code></p><a href="../index.html#/public?section=gallery">Galería local</a><p>Calendario descargable y mapa externo.</p></div></div></section>
+    <footer>Fuentes: observación de interfaz de Festeja Bonito y código local de Nupcial. Cobros fuera de alcance; billing externo pendiente. Fecha: 10 de octubre de 2026. Sin datos personales ni credenciales.</footer>
+  </main>
+  <script src="system-map.js"></script>
+</body>
+</html>

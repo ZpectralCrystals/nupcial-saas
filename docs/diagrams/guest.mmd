@@ -1,0 +1,36 @@
+flowchart LR
+  link["Enlace personalizado"]
+  code{"¿Código válido?"}
+  open["Abrir sobre"]
+  invalid["Enlace no encontrado"]
+  deadline{"¿Plazo abierto?"}
+  answer["Elegir respuesta"]
+  count{"¿Cantidad permitida?"}
+  closed["RSVP cerrado"]
+  decline["No asistir"]
+  confirm["Asistir"]
+  persist[("Guardar respuesta")]
+  retry["Si falla guardado"]
+  other["Otras acciones"]
+  media["Canción / fotos"]
+  panel["Cliente ve resultados"]
+  edit["Editar respuesta"]
+  correct["Corregir cantidad"]
+  link --> code
+  code -->|"Sí / general"| open
+  code -->|"No"| invalid
+  open -->|"Confirmar"| deadline
+  deadline -->|"Sí"| answer
+  deadline -->|"No"| closed
+  answer -->|"Asistir"| count
+  answer -->|"No asistir"| decline
+  count -->|"Sí"| confirm
+  count -->|"No"| correct
+  decline -->|"Rechazo"| persist
+  confirm --> persist
+  persist -->|"Error"| retry
+  persist -->|"Éxito"| panel
+  persist -->|"Actualizar"| edit
+  open -->|"Disponible"| other
+  other -->|"También puede"| media
+  media -->|"Datos locales"| panel

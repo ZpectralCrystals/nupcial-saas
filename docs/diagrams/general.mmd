@@ -1,0 +1,34 @@
+flowchart LR
+  home["Inicio comercial"]
+  catalog["Catálogo de bodas"]
+  preview["Probador interactivo"]
+  setup["Configurar evento"]
+  access["Registro / acceso"]
+  check{"¿Cuenta tiene eventos?"}
+  workspace[("Evento nuevo limpio")]
+  checkout["Plan elegido"]
+  existing["Elegir evento existente"]
+  client["Panel del cliente"]
+  edit["Editor de invitación"]
+  invite["Vista de invitación"]
+  manage["Gestión de invitados"]
+  answers["Respuestas y recuerdos"]
+  publish["Publicar y compartir"]
+  visitor["Invitado"]
+  home --> catalog
+  catalog --> preview
+  preview --> setup
+  setup -->|"Crear cuenta o entrar"| access
+  access --> check
+  check -->|"No · crear evento"| workspace
+  check -->|"Sí · seleccionar"| existing
+  workspace -->|"Plan seleccionado"| checkout
+  checkout -->|"Sin cobro real"| client
+  existing -->|"Abrir evento"| client
+  client --> edit
+  edit --> invite
+  client -->|"Organiza"| manage
+  manage -->|"Revisa resultados"| answers
+  invite -->|"Publicar"| publish
+  publish -->|"URL estable"| visitor
+  visitor -->|"RSVP guardado"| answers

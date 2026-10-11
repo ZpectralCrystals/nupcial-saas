@@ -1,0 +1,24 @@
+flowchart LR
+  catalog["Elegir modelo"]
+  theme["Estructura del tema"]
+  palette["Elegir paleta"]
+  tokens["Aplicar colores"]
+  mobile["Vista móvil / escritorio"]
+  demo["Probar invitación"]
+  choose["Elegir diseño"]
+  event[("Guardar en evento")]
+  editor["Editar datos y secciones"]
+  layout["Componer invitación"]
+  live["Invitación del evento"]
+  media["Fotos y audio opcionales"]
+  catalog --> theme
+  theme --> palette
+  palette --> tokens
+  tokens -->|"Se previsualiza"| demo
+  mobile --> demo
+  demo --> choose
+  choose --> event
+  event -->|"Lee selección"| layout
+  editor --> layout
+  layout --> live
+  media --> live

@@ -1,0 +1,16 @@
+flowchart LR
+  editor["Mi invitación — UI OBSERVADA"]
+  sections["7 apartados — UI OBSERVADA"]
+  draft["Editar sección — UI OBSERVADA"]
+  save["Guardar / descartar — UI OBSERVADA"]
+  public["Invitación publicada — PENDIENTE"]
+  limits["Límites visibles — UI OBSERVADA"]
+  errors["Errores de guardado — PENDIENTE"]
+  preview["Previsualizar — PENDIENTE"]
+  editor --> sections
+  sections --> draft
+  draft --> save
+  save -.-> public
+  sections --> limits
+  save -.-> errors
+  public -.-> preview

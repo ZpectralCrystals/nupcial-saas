@@ -1,0 +1,36 @@
+flowchart LR
+  panel["Panel del evento"]
+  design["Editor de invitación"]
+  preview["Revisar invitación"]
+  save[("Guardar cambios")]
+  guests["Invitados"]
+  validate{"¿Archivo y pases válidos?"}
+  list["Lista de grupos"]
+  share["Preparar invitación"]
+  rsvp["Confirmaciones"]
+  seats{"¿Hay capacidad?"}
+  tables["Plano de mesas"]
+  export["Exportar CSV"]
+  music["Canciones"]
+  gallery["Galería"]
+  backup["Configuración"]
+  restore{"Validar respaldo"}
+  correctCsv["Corregir archivo"]
+  capacity["Reubicar o ampliar"]
+  panel --> design
+  design --> preview
+  preview --> save
+  panel --> guests
+  guests --> validate
+  validate -->|"Sí"| list
+  validate -->|"No"| correctCsv
+  list --> share
+  list -->|"Respuestas"| rsvp
+  rsvp --> seats
+  seats -->|"Sí"| tables
+  seats -->|"No"| capacity
+  tables --> export
+  panel -->|"Abrir módulo"| music
+  panel -->|"Abrir módulo"| gallery
+  panel -->|"Abrir módulo"| backup
+  backup --> restore

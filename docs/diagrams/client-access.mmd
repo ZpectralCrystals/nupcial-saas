@@ -1,0 +1,16 @@
+flowchart LR
+  session["Sesión activa — UI OBSERVADA"]
+  dashboard["Panel cliente — UI OBSERVADA"]
+  plan["Plan y cupos — UI OBSERVADA"]
+  purchase["Compra / pago — PENDIENTE"]
+  offer["CTA de ampliación — UI OBSERVADA"]
+  contact["Coordinar por WhatsApp — UI OBSERVADA"]
+  activate["Pago y activación — PENDIENTE"]
+  roles["Usuarios / permisos — PENDIENTE"]
+  session --> dashboard
+  dashboard --> plan
+  plan -.-> purchase
+  plan -->|"Ampliar"| offer
+  offer --> contact
+  contact -.-> activate
+  dashboard -.->|"Cuenta"| roles

@@ -1,0 +1,24 @@
+flowchart LR
+  entry["Invitados — UI OBSERVADA"]
+  add["Crear grupo / persona — UI OBSERVADA"]
+  kind["Tipo de invitación — UI OBSERVADA"]
+  limit["Pases por grupo — UI OBSERVADA"]
+  import["Subir archivo — UI OBSERVADA"]
+  preview["Vista previa — UI OBSERVADA"]
+  phone["País y teléfono — UI OBSERVADA"]
+  store["Guardar lista — PENDIENTE"]
+  filter["Buscar / filtrar — UI OBSERVADA"]
+  columns["Columnas / páginas — UI OBSERVADA"]
+  actions["Acciones de grupo — UI OBSERVADA"]
+  manual["Respuesta manual — UI OBSERVADA"]
+  entry --> add
+  add --> kind
+  kind --> limit
+  entry -->|"Carga masiva"| import
+  import --> preview
+  preview --> phone
+  phone -.-> store
+  store --> filter
+  filter --> columns
+  columns --> actions
+  actions --> manual

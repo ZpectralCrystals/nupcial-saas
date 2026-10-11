@@ -1,0 +1,16 @@
+flowchart LR
+  songlist["Sugerencias — UI OBSERVADA"]
+  search["Buscar — UI OBSERVADA"]
+  filter["Filtrar estado — UI OBSERVADA"]
+  sort["Ordenar — UI OBSERVADA"]
+  approve["Aprobar / rechazar — UI OBSERVADA"]
+  remove["Eliminar — UI OBSERVADA"]
+  export["Exportar PDF — UI OBSERVADA"]
+  effect["Guardar estado — PENDIENTE"]
+  songlist --> search
+  search --> filter
+  filter --> sort
+  sort --> approve
+  approve --> remove
+  approve -.-> effect
+  songlist -->|"Descargar"| export

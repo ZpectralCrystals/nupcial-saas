@@ -1,0 +1,24 @@
+flowchart LR
+  client["Cuenta SaaS"]
+  auth["Sesión revocable"]
+  api["API mismo origen"]
+  database[("PostgreSQL / archivo local")]
+  guest["Invitado público"]
+  website["Invitación en servidor"]
+  rsvpApi["RSVP / canciones / galería"]
+  files["Archivos adjuntos — PENDIENTE"]
+  admin["Identidad multi-cuenta"]
+  billing["Servicio de cobros externo — PENDIENTE"]
+  jobs["Cola de notificaciones — PENDIENTE"]
+  delivery["Email / WhatsApp automático — PENDIENTE"]
+  client --> auth
+  auth --> api
+  api --> database
+  guest --> website
+  website --> rsvpApi
+  rsvpApi -->|"Actualiza"| database
+  rsvpApi -.->|"Carga temporal"| files
+  admin -->|"Cuenta"| auth
+  api -.->|"Entitlement / webhook firmado"| billing
+  api -.->|"Pendiente"| jobs
+  jobs -.-> delivery

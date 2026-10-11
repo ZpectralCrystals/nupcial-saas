@@ -1,0 +1,31 @@
+flowchart LR
+  accounts["Cuentas / tenants"]
+  tenantEvents[("Eventos por cuenta")]
+  targetEvent["Tablas normalizadas — PENDIENTE"]
+  event[("Estado JSONB por evento")]
+  guests[("Grupos invitados")]
+  tables[("Mesas")]
+  itinerary[("Itinerario")]
+  gifts[("Regalos")]
+  songs[("Canciones")]
+  gallery[("Fotos")]
+  floor[("Objetos del plano")]
+  members["Acompañantes"]
+  rsvp["Respuesta vigente"]
+  links["Links personalizados"]
+  storage[("Persistencia")]
+  accounts -->|"1:N · activa"| tenantEvents
+  tenantEvents -->|"1:1 · runtime"| event
+  event -.->|"Normalización gradual"| targetEvent
+  event -->|"1:N · array"| guests
+  event -->|"1:N · array"| tables
+  event -->|"1:N · array"| itinerary
+  event -->|"1:N · array"| gifts
+  event -->|"1:N · array"| songs
+  event -->|"1:N · array"| gallery
+  event -->|"1:N · array"| floor
+  guests -->|"0:N · array"| members
+  guests -->|"0..1 · vigente"| rsvp
+  guests -->|"1:1 · código"| links
+  tables -->|"0:N grupos; grupo → 0..1 mesa"| guests
+  event -->|"1:1 · estado"| storage

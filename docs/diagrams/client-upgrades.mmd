@@ -1,0 +1,18 @@
+flowchart LR
+  planlimits["Plan actual — UI OBSERVADA"]
+  passes["Pases adicionales — UI OBSERVADA"]
+  photos["Fotos adicionales — UI OBSERVADA"]
+  qrcheck["Check-in QR — UI OBSERVADA"]
+  request["Solicitar ampliación — UI OBSERVADA"]
+  support["WhatsApp comercial — UI OBSERVADA"]
+  payment["Pago / recibo — PENDIENTE"]
+  enable["Cupo / función activa — PENDIENTE"]
+  planlimits --> passes
+  planlimits --> photos
+  planlimits --> qrcheck
+  passes --> request
+  photos --> request
+  qrcheck --> support
+  request --> support
+  support -.-> payment
+  payment -.-> enable

@@ -1,0 +1,20 @@
+flowchart LR
+  gallery["Galería interactiva — UI OBSERVADA"]
+  quota["Cupo de fotos — UI OBSERVADA"]
+  share["Compartir enlace — UI OBSERVADA"]
+  qr["Código QR — UI OBSERVADA"]
+  review["Revisar fotos — UI OBSERVADA"]
+  select["Seleccionar fotos — UI OBSERVADA"]
+  download["Descargar ZIP — UI OBSERVADA"]
+  delete["Eliminar — UI OBSERVADA"]
+  expand["Ampliar cupo — UI OBSERVADA"]
+  payment["Pago / aumentar cupo — PENDIENTE"]
+  gallery --> quota
+  quota --> share
+  share --> qr
+  gallery -->|"Moderar"| review
+  review --> select
+  select --> download
+  select --> delete
+  quota -->|"Límite"| expand
+  expand -.-> payment

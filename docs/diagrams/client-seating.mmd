@@ -1,0 +1,28 @@
+flowchart LR
+  open["Plano de mesas — UI OBSERVADA"]
+  table["Crear / editar mesa"]
+  objects["Añadir zonas"]
+  move["Editar distribución"]
+  pool["Elegir confirmados"]
+  assign["Asignar grupo"]
+  capacity{"¿Cabe el grupo?"}
+  full["Avisar aforo"]
+  auto["Auto-distribuir"]
+  review["Revisar plano"]
+  save[("Guardar distribución")]
+  print["Imprimir / PDF"]
+  reference["Lógica original — PENDIENTE"]
+  open --> table
+  table --> objects
+  objects --> move
+  open -->|"Asignar"| pool
+  pool --> assign
+  assign --> capacity
+  capacity -->|"Sí"| save
+  capacity -->|"No"| full
+  pool -->|"Opción automática"| auto
+  auto --> review
+  move --> review
+  review --> save
+  save --> print
+  review -.->|"Paridad exacta"| reference

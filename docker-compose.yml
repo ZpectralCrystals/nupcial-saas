@@ -1,0 +1,36 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: nupcial
+      POSTGRES_USER: nupcial
+      POSTGRES_PASSWORD: nupcial-local-only
+    volumes:
+      - nupcial-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nupcial -d nupcial"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build: .
+    environment:
+      NODE_ENV: development
+      HOST: 0.0.0.0
+      PORT: 4173
+      APP_URL: http://localhost:4173
+      APP_EMAIL: demo@boda.local
+      APP_PASSWORD: demo123
+      SESSION_SECRET: local-docker-secret-change-before-production-0001
+      DATABASE_URL: postgres://nupcial:nupcial-local-only@db:5432/nupcial
+      PGSSLMODE: disable
+      PAYMENT_PROVIDER: mock
+    ports:
+      - "4173:4173"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  nupcial-db:

@@ -1,0 +1,34 @@
+flowchart LR
+  signup["Registro"]
+  verify["Verificar correo"]
+  account[("Cuenta")]
+  newEvent[("Crear evento")]
+  login["Login cuenta"]
+  session["Sesión revocable"]
+  permission["Autorizar evento"]
+  repo[("Repositorio aislado")]
+  migration["Normalizar colecciones — PENDIENTE"]
+  link["Código de invitado"]
+  rsvp["RSVP"]
+  modules["Módulos cliente"]
+  slug["URL pública estable"]
+  public["Resolver invitación"]
+  projection["Proyección pública"]
+  tests["Pruebas A/B"]
+  ops["Operación — PENDIENTE"]
+  signup --> verify
+  verify --> account
+  account -->|"1:N"| newEvent
+  login --> session
+  session --> permission
+  account -->|"Identidad"| permission
+  permission -->|"¿Pertenece?"| repo
+  migration --> repo
+  repo --> modules
+  modules --> link
+  link --> rsvp
+  newEvent --> slug
+  slug --> public
+  public --> projection
+  repo --> tests
+  ops -->|"Observabilidad / protección"| repo

@@ -1,0 +1,30 @@
+flowchart LR
+  event[("Evento")]
+  style["Diseño"]
+  content["Contenido de invitación"]
+  groups[("Invitados / grupos")]
+  response["RSVP en invitado"]
+  tables[("Mesas")]
+  floorItems[("Objetos del salón")]
+  songs[("Canciones")]
+  photos[("Galería")]
+  storage[("PostgreSQL / JSON local")]
+  metrics["Resumen y exportaciones"]
+  public["Vista pública"]
+  style --> event
+  event --> content
+  event --> groups
+  groups -->|"Contiene"| response
+  response -->|"Referencia mesa"| tables
+  response -->|"Cuenta asistentes"| metrics
+  event --> songs
+  event -->|"Incluye"| photos
+  photos -->|"Persiste"| storage
+  songs -->|"Persiste"| storage
+  tables -->|"Ubicación del salón"| floorItems
+  floorItems -->|"Respaldo JSON"| storage
+  tables -->|"Persiste"| storage
+  event -->|"API de estado"| storage
+  content -->|"Vista previa"| metrics
+  event -->|"Proyección permitida"| public
+  groups -->|"Solo registro por código"| public

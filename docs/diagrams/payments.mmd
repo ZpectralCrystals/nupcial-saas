@@ -1,0 +1,22 @@
+flowchart LR
+  owner["Panel cliente"]
+  catalog["Precio de demo"]
+  order[("Intento ficticio")]
+  mock["Simulador local"]
+  decision{"¿Resultado aprobado?"}
+  activate[("Plan demo activo")]
+  billing["Servicio billing externo — PENDIENTE"]
+  entitlement["Entitlement firmado — PENDIENTE"]
+  other["Pendiente / rechazo"]
+  separate["Proveedor / webhooks — PENDIENTE"]
+  main["Aplicación principal — PENDIENTE"]
+  owner --> catalog
+  catalog --> order
+  order --> mock
+  mock -->|"Resultado ficticio"| decision
+  decision -->|"Sí"| activate
+  decision -->|"No"| other
+  billing -.-> separate
+  separate -.-> entitlement
+  entitlement -.-> main
+  main -->|"Contrato objetivo"| activate
