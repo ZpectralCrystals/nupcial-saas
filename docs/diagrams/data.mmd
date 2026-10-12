@@ -3,8 +3,9 @@ flowchart LR
   style["Diseño"]
   content["Contenido de invitación"]
   groups[("Invitados / grupos")]
-  response["RSVP en invitado"]
+  response["RSVP del grupo"]
   tables[("Mesas")]
+  assignment[("Asignación local grupo ↔ mesa")]
   floorItems[("Objetos del salón")]
   songs[("Canciones")]
   photos[("Galería")]
@@ -14,14 +15,16 @@ flowchart LR
   style --> event
   event --> content
   event --> groups
-  groups -->|"Contiene"| response
-  response -->|"Referencia mesa"| tables
+  groups -->|"Tiene respuesta"| response
   response -->|"Cuenta asistentes"| metrics
+  event --> tables
+  groups -->|"0..1"| assignment
+  assignment -->|"N:1"| tables
+  event --> floorItems
   event --> songs
   event -->|"Incluye"| photos
   photos -->|"Persiste"| storage
   songs -->|"Persiste"| storage
-  tables -->|"Ubicación del salón"| floorItems
   floorItems -->|"Respaldo JSON"| storage
   tables -->|"Persiste"| storage
   event -->|"API de estado"| storage

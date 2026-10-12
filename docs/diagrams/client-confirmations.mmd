@@ -1,16 +1,18 @@
 flowchart LR
   answers["Confirmaciones — UI OBSERVADA"]
+  metrics["Métricas — UI OBSERVADA"]
   search["Buscar — UI OBSERVADA"]
-  filter["Filtrar tipo — UI OBSERVADA"]
-  sort["Ordenar — UI OBSERVADA"]
-  detail["Ver detalle — UI OBSERVADA"]
+  filter["Filtrar y ordenar — UI OBSERVADA"]
+  detail["Detalle de respuesta — UI OBSERVADA"]
   export["Exportar listas — UI OBSERVADA"]
-  manual["Desde invitados — UI OBSERVADA"]
-  effect["Guardar / notificar — PENDIENTE"]
-  answers --> search
+  manual["Desde Invitados — UI OBSERVADA"]
+  pool["Enviar al plano — UI OBSERVADA"]
+  notify["Notificar corrección — PENDIENTE"]
+  answers --> metrics
+  metrics --> search
   search --> filter
-  filter --> sort
-  sort --> detail
+  filter --> detail
   answers -->|"Descargar"| export
-  answers -->|"Gestionar"| manual
-  manual -.-> effect
+  answers -->|"Corregir"| manual
+  manual -->|"Confirmó"| pool
+  manual -.->|"Efecto externo"| notify

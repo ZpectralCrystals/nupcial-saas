@@ -52,9 +52,10 @@ function appHarness() {
     documentElement: { style: { setProperty() {} } },
     body: { classList: { add() {}, remove() {} } },
   };
-  const window = { NupcialCore: Core, addEventListener() {}, removeEventListener() {}, print() {} };
+  const window = { NupcialCore: Core, addEventListener(name, callback) { listeners.set(`window:${name}`, callback); }, removeEventListener() {}, print() {} };
   const context = vm.createContext({
-    window, document, location: { hash: '#/tables', origin: 'http://127.0.0.1:4173', pathname: '/' },
+    window, document, location: { hash: '#/tables', search: '', origin: 'http://127.0.0.1:4173', pathname: '/' },
+    history: { replaceState(_state, _title, url) { const parsed = new URL(url, 'http://127.0.0.1:4173'); context.location.pathname = parsed.pathname; context.location.search = parsed.search; context.location.hash = parsed.hash; } },
     localStorage: { getItem(key) { return storage.get(key) || null; }, setItem(key, value) { storage.set(key, value); } },
     sessionStorage: { getItem(key) { return storage.get(key) ?? (key === 'nupcial-auth' ? '1' : null); }, setItem(key, value) { storage.set(key, value); }, removeItem(key) { storage.delete(key); } },
     structuredClone, URLSearchParams, Intl, Date, Math, JSON, Blob, URL, TextEncoder, TextDecoder, DataView, Uint8Array, Response, DecompressionStream, DOMParser: TestDOMParser, setTimeout, clearTimeout,
@@ -63,7 +64,7 @@ function appHarness() {
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8'), context, { filename: 'app.js' });
   vm.runInContext('render()', context);
-  return { context, appRoot, storage, elements, evaluate: code => vm.runInContext(code, context) };
+  return { context, appRoot, storage, elements, listeners, evaluate: code => vm.runInContext(code, context) };
 }
 
 test('seating canvas renders saved positions, capacity and draggable room elements', () => {
@@ -209,12 +210,97 @@ test('RSVP module exposes filters, status sections and event-type responses', ()
 
 test('guest list exposes copy-message, copy-link and open-personal-invitation actions', () => {
   const h = appHarness();
+  h.evaluate("db.event.slug='boda-demo'");
   const html = h.evaluate('guestRows([db.guests[0]])');
   assert.match(html, /data-copy-invite="1"/);
   assert.match(html, /data-copy-link="1"/);
-  assert.match(html, /href="#\/public\?guest=INV-1"/);
-  assert.equal(h.evaluate('personalizedInviteUrl(db.guests[0])'), 'http://127.0.0.1:4173/#/public?guest=INV-1');
-  assert.ok(h.evaluate('invitationMessage(db.guests[0])').includes('http://127.0.0.1:4173/#/public?guest=INV-1'));
+  assert.match(html, /href="http:\/\/127\.0\.0\.1:4173\/\?event=boda-demo#\/public\?guest=INV-1"/);
+  assert.equal(h.evaluate('personalizedInviteUrl(db.guests[0])'), 'http://127.0.0.1:4173/?event=boda-demo#/public?guest=INV-1');
+  assert.ok(h.evaluate('invitationMessage(db.guests[0])').includes('http://127.0.0.1:4173/?event=boda-demo#/public?guest=INV-1'));
+});
+
+test('authenticated explicit public event loads before tenant workspace routing', async () => {
+  const h = appHarness();
+  await new Promise(resolve => setTimeout(resolve, 10));
+  h.context.location.hash = '#/public';
+  h.context.location.search = '?event=public-slug';
+  const requests = [];
+  h.context.fetch = async url => {
+    requests.push(url);
+    if (url === '/api/auth/session') return { ok: true, status: 200, json: async () => ({ authenticated: true, email: 'owner@example.com', legacy: false, activeEventId: null }) };
+    if (url === '/api/config') return { ok: true, status: 200, json: async () => ({ demo: true, paymentMode: 'mock' }) };
+    if (url === '/api/public/state?event=public-slug') return { ok: true, status: 200, json: async () => ({ state: { event: { bride: 'PUBLIC_REMOTE_EVENT', groom: 'Invitación', slug: 'public-slug' }, itinerary: [], gifts: [], guests: [], tables: [], floorObjects: [], songs: [], gallery: [], galleryEnabled: true } }) };
+    throw new Error(`Unexpected request: ${url}`);
+  };
+  await h.evaluate('initializeApp()');
+  assert.equal(h.evaluate('db.event.bride'), 'PUBLIC_REMOTE_EVENT');
+  assert.equal(h.evaluate('remotePublic'), true);
+  assert.deepEqual(requests, ['/api/auth/session', '/api/config', '/api/public/state?event=public-slug']);
+});
+
+test('tenant settings hide demo reset and backup restore preserves server-owned fields', async () => {
+  const h = appHarness();
+  h.evaluate('tenantMode=true;db.event.id="current-id";db.event.slug="current-slug";db.event.status="published";db.event.plan="premium";db.event.planStatus="active";db.event.lastPaymentId="payment-id"');
+  assert.doesNotMatch(h.evaluate('settingsPage()'), /data-action="reset-demo"/);
+  const backup = JSON.parse(h.evaluate('JSON.stringify(db)'));
+  Object.assign(backup.event, { id: 'foreign-id', slug: 'foreign-slug', status: 'draft', plan: 'deluxe', planStatus: 'active', lastPaymentId: 'forged-payment', bride: 'Restored Bride' });
+  const input = { addEventListener(_name, handler) { this.handler = handler; } };
+  h.elements.set('#backup-import', input);
+  h.evaluate('bindPage("settings")');
+  const text = JSON.stringify(backup);
+  await input.handler({ target: { files: [{ size: text.length, text: async () => text }] } });
+  assert.equal(h.evaluate('db.event.id'), 'current-id');
+  assert.equal(h.evaluate('db.event.slug'), 'current-slug');
+  assert.equal(h.evaluate('db.event.status'), 'published');
+  assert.equal(h.evaluate('db.event.plan'), 'premium');
+  assert.equal(h.evaluate('db.event.planStatus'), 'active');
+  assert.equal(h.evaluate('db.event.lastPaymentId'), 'payment-id');
+  assert.equal(h.evaluate('db.event.bride'), 'Restored Bride');
+});
+
+test('stale public navigation cannot overwrite the restored private tenant workspace', async () => {
+  const h = appHarness();
+  await new Promise(resolve => setTimeout(resolve, 10));
+  h.evaluate('apiMode=true;tenantMode=true;sessionStorage.setItem(AUTH_KEY,"1")');
+  let resolvePublic;
+  const publicResponse = new Promise(resolve => { resolvePublic = resolve; });
+  h.context.fetch = async url => {
+    if (String(url).startsWith('/api/public/state?')) return publicResponse;
+    if (url === '/api/auth/session') return { ok: true, status: 200, json: async () => ({ authenticated: true, email: 'owner@example.com', legacy: false, activeEventId: 'event-private' }) };
+    if (url === '/api/events') return { ok: true, status: 200, json: async () => ({ events: [{ id: 'event-private', title: 'Privado' }] }) };
+    if (url === '/api/state') return { ok: true, status: 200, json: async () => ({ state: { event: { bride: 'PRIVATE_EVENT', groom: 'Owner' }, itinerary: [], gifts: [], guests: [], tables: [], floorObjects: [], songs: [], gallery: [], galleryEnabled: true }, version: 4, eventId: 'event-private', slug: 'private-slug', eventStatus: 'draft' }) };
+    throw new Error(`Unexpected request: ${url}`);
+  };
+  h.context.location.search = '?event=slow-public';
+  h.context.location.hash = '#/public';
+  const first = h.listeners.get('window:hashchange')();
+  h.context.location.hash = '#/dashboard';
+  const second = h.listeners.get('window:hashchange')();
+  await second;
+  resolvePublic({ ok: true, status: 200, json: async () => ({ state: { event: { bride: 'STALE_PUBLIC', groom: 'Guest' }, itinerary: [], gifts: [], guests: [], tables: [], floorObjects: [], songs: [], gallery: [], galleryEnabled: true } }) });
+  await first;
+  assert.equal(h.evaluate('db.event.bride'), 'PRIVATE_EVENT');
+  assert.equal(h.evaluate('remotePublic'), false);
+  assert.equal(h.evaluate('publicContextActive'), false);
+  assert.equal(h.context.location.search, '');
+});
+
+test('gallery UI uses the same 200-photo limit as the API', () => {
+  const h = appHarness();
+  const html = h.evaluate('galleryPage()');
+  assert.match(html, /límite 200/);
+  assert.doesNotMatch(html, /referencia 250/);
+});
+
+test('registration verifies email before the owner chooses an account password', () => {
+  const h = appHarness();
+  const register = h.evaluate('registerPage()');
+  const verify = h.evaluate('verifyPage()');
+  assert.match(register, /Enviar enlace de confirmación/);
+  assert.doesNotMatch(register, /name="password"/);
+  assert.match(verify, /id="verify-form"/);
+  assert.match(verify, /name="password"/);
+  assert.match(verify, /Confirmar correo y contraseña/);
 });
 
 test('module navigation closes an open modal', () => {

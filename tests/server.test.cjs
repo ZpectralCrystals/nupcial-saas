@@ -59,6 +59,35 @@ test('owner API requires server-side credentials and cookie session; state updat
   assert.equal((await app.request('/api/state', { cookie })).status, 401);
 });
 
+test('static server exposes only intentional web assets', async t => {
+  const app = await setup(t);
+  for (const route of ['/', '/app.js', '/assets/wedding-versalles.png', '/docs/system-map.html', '/docs/reference-festejabonito-client-seating.md']) {
+    const response = await app.request(route);
+    assert.equal(response.status, 200, route);
+    assert.match(response.headers.get('content-security-policy') || '', /script-src 'self'/, route);
+    assert.match(response.headers.get('content-security-policy') || '', /object-src 'none'/, route);
+  }
+  for (const route of ['/.data/demo-state.json', '/server.mjs', '/package.json', '/assets/IMAGE-PROMPTS.md', '/docs/festejabonito-recorrido-panel-cliente-2026-10-11.mov']) {
+    assert.equal((await app.request(route)).status, 404, route);
+  }
+});
+
+test('owner state validation rejects markup smuggled through guest identifiers and numeric fields', async t => {
+  const app = await setup(t);
+  const cookie = await app.login();
+  const badPasses = fixture();
+  badPasses.guests[0].passes = '2"><img src=x onerror=alert(1)>';
+  const passesResponse = await app.request('/api/state', { method: 'PUT', cookie, body: { state: badPasses, version: 0 } });
+  assert.equal(passesResponse.status, 400);
+  assert.match((await passesResponse.json()).error, /Pases de invitado/);
+
+  const badId = fixture();
+  badId.guests[0].id = '7" onmouseover="alert(1)';
+  const idResponse = await app.request('/api/state', { method: 'PUT', cookie, body: { state: badId, version: 0 } });
+  assert.equal(idResponse.status, 400);
+  assert.match((await idResponse.json()).error, /Invitado no válido/);
+});
+
 test('public event response redacts private fields; RSVP writes only validated fields to server state', async t => {
   const app = await setup(t);
   const cookie = await app.login();
@@ -185,13 +214,13 @@ function tokenFrom(url) {
 
 async function createVerifiedAccount(app, email) {
   const password = 'account-password-long-A!';
-  const registration = await app.request('/api/auth/register', { method: 'POST', body: { email, password } });
+  const registration = await app.request('/api/auth/register', { method: 'POST', body: { email } });
   assert.equal(registration.status, 202);
   const { verificationUrl } = await registration.json();
   assert.ok(verificationUrl);
   const token = tokenFrom(verificationUrl);
-  assert.equal((await app.request('/api/auth/login', { method: 'POST', body: { email, password } })).status, 403);
-  assert.equal((await app.request('/api/auth/verify', { method: 'POST', body: { token } })).status, 200);
+  assert.equal((await app.request('/api/auth/login', { method: 'POST', body: { email, password } })).status, 401);
+  assert.equal((await app.request('/api/auth/verify', { method: 'POST', body: { token, password } })).status, 200);
   const login = await app.request('/api/auth/login', { method: 'POST', body: { email, password } });
   assert.equal(login.status, 200);
   return { password, verificationToken: token, cookie: login.headers.get('set-cookie').split(';')[0] };
@@ -200,7 +229,7 @@ async function createVerifiedAccount(app, email) {
 test('account signup requires single-use email verification and password reset revokes old sessions', async t => {
   const app = await setup(t);
   const { password, verificationToken, cookie } = await createVerifiedAccount(app, 'owner-one@example.test');
-  assert.equal((await app.request('/api/auth/verify', { method: 'POST', body: { token: verificationToken } })).status, 400);
+  assert.equal((await app.request('/api/auth/verify', { method: 'POST', body: { token: verificationToken, password } })).status, 400);
   assert.equal((await app.request('/api/auth/session', { cookie })).status, 200);
   const requested = await app.request('/api/auth/password-reset/request', { method: 'POST', body: { email: 'owner-one@example.test' } });
   const resetUrl = (await requested.json()).resetUrl;
@@ -211,6 +240,44 @@ test('account signup requires single-use email verification and password reset r
   assert.equal((await (await app.request('/api/auth/session', { cookie })).json()).authenticated, false);
   assert.equal((await app.request('/api/auth/login', { method: 'POST', body: { email: 'owner-one@example.test', password } })).status, 401);
   assert.equal((await app.request('/api/auth/login', { method: 'POST', body: { email: 'owner-one@example.test', password: nextPassword } })).status, 200);
+});
+
+test('email owner chooses the password at verification, preventing pending-account pre-hijacking', async t => {
+  const app = await setup(t);
+  const email = 'pending-owner@example.test';
+  const firstPassword = 'attacker-chosen-password!';
+  const ownerPassword = 'owner-chosen-password-long!';
+
+  const first = await app.request('/api/auth/register', { method: 'POST', body: { email, password: firstPassword } });
+  assert.equal(first.status, 202);
+  const firstToken = tokenFrom((await first.json()).verificationUrl);
+  assert.equal((await app.request('/api/auth/verify', { method: 'POST', body: { token: firstToken, password: ownerPassword } })).status, 200);
+  assert.equal((await app.request('/api/auth/login', { method: 'POST', body: { email, password: firstPassword } })).status, 401);
+  assert.equal((await app.request('/api/auth/login', { method: 'POST', body: { email, password: ownerPassword } })).status, 200);
+});
+
+test('re-registering a pending email keeps existing links valid until one succeeds', async t => {
+  const app = await setup(t);
+  const email = 'pending-repeat@example.test', password = 'owner-chosen-password-long!', stalePassword = 'stale-link-password-long!';
+  const first = await app.request('/api/auth/register', { method: 'POST', body: { email } });
+  const firstToken = tokenFrom((await first.json()).verificationUrl);
+  const second = await app.request('/api/auth/register', { method: 'POST', body: { email } });
+  const secondToken = tokenFrom((await second.json()).verificationUrl);
+  assert.notEqual(firstToken, secondToken);
+  assert.equal((await app.request('/api/auth/verify', { method: 'POST', body: { token: firstToken, password } })).status, 200);
+  assert.equal((await app.request('/api/auth/verify', { method: 'POST', body: { token: secondToken, password: stalePassword } })).status, 400);
+  assert.equal((await app.request('/api/auth/login', { method: 'POST', body: { email, password } })).status, 200);
+  assert.equal((await app.request('/api/auth/login', { method: 'POST', body: { email, password: stalePassword } })).status, 401);
+});
+
+test('verification rejects invalid tokens before password hashing and rate limits probing', async t => {
+  const app = await setup(t);
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const response = await app.request('/api/auth/verify', { method: 'POST', body: { token: `invalid-token-${String(attempt).padEnd(32, 'x')}`, password: 'valid-password-long!' } });
+    assert.equal(response.status, 400);
+  }
+  const limited = await app.request('/api/auth/verify', { method: 'POST', body: { token: `invalid-token-${'z'.repeat(32)}`, password: 'valid-password-long!' } });
+  assert.equal(limited.status, 429);
 });
 
 test('tenant events isolate state, public RSVP, publication and event selection across accounts', async t => {
@@ -248,6 +315,44 @@ test('tenant events isolate state, public RSVP, publication and event selection 
   assert.equal((await app.request(`/api/public/state?event=${eventA.slug}`)).status, 404);
 });
 
+test('tenant revision conflict reports the active event version, not the legacy demo version', async t => {
+  const app = await setup(t);
+  const owner = await createVerifiedAccount(app, 'tenant-conflict@example.test');
+  const created = await app.request('/api/events', { method: 'POST', cookie: owner.cookie, body: { state: fixture() } });
+  assert.equal(created.status, 201);
+  const initial = await (await app.request('/api/state', { cookie: owner.cookie })).json();
+  assert.equal(initial.version, 1);
+
+  const changed = structuredClone(initial.state);
+  changed.event.phrase = 'Primera pestaña';
+  const accepted = await app.request('/api/state', { method: 'PUT', cookie: owner.cookie, body: { state: changed, version: 1 } });
+  assert.equal(accepted.status, 200);
+  assert.equal((await accepted.json()).version, 2);
+
+  const stale = await app.request('/api/state', { method: 'PUT', cookie: owner.cookie, body: { state: initial.state, version: 1 } });
+  assert.equal(stale.status, 409);
+  assert.equal((await stale.json()).version, 2);
+});
+
+test('tenant state writes cannot forge billing entitlement or event identity', async t => {
+  const app = await setup(t);
+  const owner = await createVerifiedAccount(app, 'tenant-owned-fields@example.test');
+  const created = await app.request('/api/events', { method: 'POST', cookie: owner.cookie, body: { state: fixture() } });
+  const event = (await created.json()).event;
+  const current = await (await app.request('/api/state', { cookie: owner.cookie })).json();
+  const forged = structuredClone(current.state);
+  Object.assign(forged.event, { id: 'foreign-id', slug: 'foreign-slug', status: 'published', plan: 'deluxe', planStatus: 'active', lastPaymentId: 'fake-payment' });
+  const response = await app.request('/api/state', { method: 'PUT', cookie: owner.cookie, body: { state: forged, version: current.version } });
+  assert.equal(response.status, 200);
+  const saved = await (await app.request('/api/state', { cookie: owner.cookie })).json();
+  assert.equal(saved.state.event.id, event.id);
+  assert.equal(saved.state.event.slug, event.slug);
+  assert.equal(saved.state.event.status, 'draft');
+  assert.equal(saved.state.event.plan, 'essential');
+  assert.equal(saved.state.event.planStatus, 'demo');
+  assert.equal(saved.state.event.lastPaymentId, undefined);
+});
+
 test('production refuses demo provider and incomplete deployment secrets', async () => {
   const { createApp } = await import('../server.mjs');
   await assert.rejects(() => createApp({ env: { NODE_ENV: 'production' }, store: {} }), /SESSION_SECRET/);
@@ -256,6 +361,15 @@ test('production refuses demo provider and incomplete deployment secrets', async
     SESSION_SECRET: 'long-secret-session-key-with-at-least-32-chars', APP_URL: 'https://demo.example.test',
     DATABASE_URL: 'postgres://unused', PAYMENT_PROVIDER: 'mock',
   }, store: {} }), /No se permite PAYMENT_PROVIDER=mock/);
+  const secureDemo = await createApp({ env: {
+    NODE_ENV: 'production', EMAIL_API_URL: 'https://mail.example.test/send', EMAIL_API_KEY: 'secret', EMAIL_FROM: 'noreply@example.test',
+    SESSION_SECRET: 'long-secret-session-key-with-at-least-32-chars', APP_URL: 'https://demo.example.test',
+    DATABASE_URL: 'postgres://unused', PAYMENT_PROVIDER: 'mock', ALLOW_MOCK_PAYMENTS: 'true',
+  }, store: {} });
+  assert.equal(secureDemo.config.production, true);
+  assert.equal(secureDemo.config.mockPaymentsEnabled, true);
+  assert.equal(secureDemo.config.legacyAuthEnabled, false);
+  await secureDemo.close();
   const app = await createApp({ env: {
     NODE_ENV: 'production', EMAIL_API_URL: 'https://mail.example.test/send', EMAIL_API_KEY: 'secret', EMAIL_FROM: 'noreply@example.test',
     SESSION_SECRET: 'long-secret-session-key-with-at-least-32-chars', APP_URL: 'https://demo.example.test',

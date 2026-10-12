@@ -44,11 +44,11 @@ async function request(path, { method = 'GET', body, cookie } = {}) {
 async function createAccount(label) {
   const email = `${label}-${Date.now()}-${Math.random().toString(16).slice(2)}@example.test`;
   const password = 'SmokePassword-2026';
-  const registration = await request('/api/auth/register', { method: 'POST', body: { email, password } });
+  const registration = await request('/api/auth/register', { method: 'POST', body: { email } });
   assert.equal(registration.status, 202);
   const tokenMatch = registration.data.verificationUrl?.match(/[?&]token=([^&]+)/);
   assert.ok(tokenMatch, 'development registration returns verification URL');
-  const verification = await request('/api/auth/verify', { method: 'POST', body: { token: decodeURIComponent(tokenMatch[1]) } });
+  const verification = await request('/api/auth/verify', { method: 'POST', body: { token: decodeURIComponent(tokenMatch[1]), password } });
   assert.equal(verification.status, 200);
   const login = await request('/api/auth/login', { method: 'POST', body: { email, password } });
   assert.equal(login.status, 200);

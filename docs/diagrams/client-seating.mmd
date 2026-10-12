@@ -1,28 +1,41 @@
 flowchart LR
   open["Plano de mesas — UI OBSERVADA"]
-  table["Crear / editar mesa"]
-  objects["Añadir zonas"]
-  move["Editar distribución"]
-  pool["Elegir confirmados"]
-  assign["Asignar grupo"]
-  capacity{"¿Cabe el grupo?"}
-  full["Avisar aforo"]
-  auto["Auto-distribuir"]
-  review["Revisar plano"]
-  save[("Guardar distribución")]
-  print["Imprimir / PDF"]
-  reference["Lógica original — PENDIENTE"]
-  open --> table
+  stats["Estadísticas — UI OBSERVADA"]
+  table["Crear / editar mesa — UI OBSERVADA"]
+  objects["Elementos del salón — UI OBSERVADA"]
+  pool["Pool confirmado — UI OBSERVADA"]
+  mode["Elegir asignación — UI OBSERVADA"]
+  chair["Silla identificada — UI OBSERVADA"]
+  assign["Asignar persona ↔ silla — UI OBSERVADA"]
+  auto["Distribución automática — UI OBSERVADA"]
+  preview["Vista previa — UI OBSERVADA"]
+  family["Familia completa — UI OBSERVADA"]
+  suggest["Mesas sugeridas — UI OBSERVADA"]
+  select["Editar SVG — UI OBSERVADA"]
+  layout["Alinear / espaciar — UI OBSERVADA"]
+  navigate["Navegar — UI OBSERVADA"]
+  review["Revisar — UI OBSERVADA"]
+  undo["Control de cambios — UI OBSERVADA"]
+  export["Exportar PDF — UI OBSERVADA"]
+  local["Nupcial local"]
+  gap["Paridad pendiente — PENDIENTE"]
+  open --> stats
+  stats --> table
   table --> objects
-  objects --> move
   open -->|"Asignar"| pool
-  pool --> assign
-  assign --> capacity
-  capacity -->|"Sí"| save
-  capacity -->|"No"| full
-  pool -->|"Opción automática"| auto
-  auto --> review
-  move --> review
-  review --> save
-  save --> print
-  review -.->|"Paridad exacta"| reference
+  pool --> mode
+  mode --> chair
+  chair --> assign
+  pool -->|"Automático"| auto
+  auto --> preview
+  preview --> family
+  family --> suggest
+  objects -->|"Editar"| select
+  select --> layout
+  layout --> navigate
+  navigate --> review
+  review --> undo
+  undo --> export
+  local -.-> gap
+  assign -->|"Validar"| review
+  suggest -->|"Aplicar"| review

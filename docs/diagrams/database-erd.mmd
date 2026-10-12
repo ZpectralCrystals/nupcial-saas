@@ -1,30 +1,74 @@
 erDiagram
+  %% RUNTIME ACTIVO: identidad, sesiones, eventos y documento versionado por evento.
   ACCOUNTS ||--o{ EVENTS : owns
   ACCOUNTS ||--o{ ACCOUNT_SESSIONS : authenticates
+  EVENTS o|--o{ ACCOUNT_SESSIONS : selected_as_active
   ACCOUNTS ||--o{ EMAIL_VERIFICATION_TOKENS : verifies
   ACCOUNTS ||--o{ PASSWORD_RESET_TOKENS : resets
   ACCOUNTS ||--o{ EVENT_MEMBERSHIPS : collaborates
+  ACCOUNTS o|--o{ EVENT_MEMBERSHIPS : optionally_invites
   EVENTS ||--o{ EVENT_MEMBERSHIPS : shares_with
-  EVENTS ||--o{ EVENT_ITINERARY_ITEMS : schedules
-  EVENTS ||--o{ EVENT_GIFT_OPTIONS : offers
-  EVENTS ||--o{ GUEST_GROUPS : invites
-  EVENTS ||--o{ EVENT_TABLES : arranges
-  EVENTS ||--o{ EVENT_FLOOR_OBJECTS : lays_out
-  EVENTS ||--o{ EVENT_SONG_SUGGESTIONS : moderates
-  EVENTS ||--o{ EVENT_MEDIA : stores_metadata_for
-  EVENTS ||--o{ EVENT_ACTIVITY_LOG : audits
+  EVENTS ||--o| EVENT_APPLICATION_STATES : has_runtime_state
+
+  %% MODELO NORMALIZADO PREPARADO: estas tablas existen, pero el panel todavía
+  %% guarda sus colecciones dentro de EVENT_APPLICATION_STATES.payload.
+  EVENTS ||--o{ EVENT_ITINERARY_ITEMS : target_schedules
+  EVENTS ||--o{ EVENT_GIFT_OPTIONS : target_offers
+  EVENTS ||--o{ GUEST_GROUPS : target_invites
+  EVENTS ||--o{ EVENT_TABLES : target_arranges
+  EVENTS ||--o{ EVENT_FLOOR_OBJECTS : target_lays_out
+  EVENTS ||--o{ EVENT_SONG_SUGGESTIONS : target_moderates
+  EVENTS ||--o{ EVENT_MEDIA : target_stores_metadata_for
+  EVENTS ||--o{ EVENT_ACTIVITY_LOG : target_audits
   EVENTS ||--o| EVENT_ENTITLEMENTS : receives_from_billing
-  EVENTS ||--o{ BILLING_EVENT_RECEIPTS : deduplicates_external_events
+  EVENTS o|--o{ BILLING_EVENT_RECEIPTS : optionally_matches_receipt
   GUEST_GROUPS ||--o{ GUEST_RSVP_RESPONSES : keeps_history
   GUEST_RSVP_RESPONSES ||--o{ GUEST_RSVP_ATTENDEES : names_attendees
   GUEST_GROUPS ||--o| GUEST_TABLE_ASSIGNMENTS : assigned_to_zero_or_one
   EVENT_TABLES ||--o{ GUEST_TABLE_ASSIGNMENTS : seats_many_groups
+  GUEST_GROUPS o|--o{ EVENT_MEDIA : optionally_uploads
+  ACCOUNTS o|--o{ GUEST_TABLE_ASSIGNMENTS : optionally_assigns
+  ACCOUNTS o|--o{ EVENT_SONG_SUGGESTIONS : optionally_moderates
+  ACCOUNTS o|--o{ EVENT_ACTIVITY_LOG : optionally_acts
 
+  %% VISTA: última respuesta de cada grupo; el historial permanece separado.
+  GUEST_GROUPS ||--o| CURRENT_GUEST_RSVPS : exposes_latest
+
+  %% COMPATIBILIDAD SOLO DESARROLLO: NUPICIAL_DEMO_* se crea en PostgresStore.init,
+  %% fuera de las migraciones, sin claves foráneas hacia el modelo SaaS.
+
+  SCHEMA_MIGRATIONS {
+    text version PK
+    timestamptz applied_at
+  }
   ACCOUNTS {
     uuid id PK
     text email_normalized UK
     text password_hash
     text status
+    timestamptz deleted_at
+  }
+  ACCOUNT_SESSIONS {
+    uuid id PK
+    uuid account_id FK
+    uuid active_event_id FK "nullable"
+    text token_hash UK
+    timestamptz expires_at
+    timestamptz revoked_at
+  }
+  EMAIL_VERIFICATION_TOKENS {
+    uuid id PK
+    uuid account_id FK
+    text token_hash UK
+    timestamptz expires_at
+    timestamptz consumed_at
+  }
+  PASSWORD_RESET_TOKENS {
+    uuid id PK
+    uuid account_id FK
+    text token_hash UK
+    timestamptz expires_at
+    timestamptz consumed_at
   }
   EVENTS {
     uuid id PK
@@ -33,21 +77,62 @@ erDiagram
     text status
     jsonb content
     jsonb sections
+    timestamptz archived_at
   }
   EVENT_MEMBERSHIPS {
     uuid event_id PK,FK
     uuid account_id PK,FK
     text role
+    uuid invited_by_account_id FK "nullable"
+  }
+  EVENT_APPLICATION_STATES {
+    uuid event_id PK,FK
+    bigint revision
+    jsonb payload
+    timestamptz updated_at
+  }
+  AUTH_RATE_LIMIT_BUCKETS {
+    text scope PK
+    text fingerprint PK
+    timestamptz window_started_at
+    integer hit_count
+  }
+  EVENT_ITINERARY_ITEMS {
+    uuid id PK
+    uuid event_id FK
+    integer sort_order
+  }
+  EVENT_GIFT_OPTIONS {
+    uuid id PK
+    uuid event_id FK
+    integer sort_order
+    text gift_type
   }
   GUEST_GROUPS {
     uuid id PK
     uuid event_id FK
     text link_code UK
     integer pass_limit
+    timestamptz deleted_at
   }
   GUEST_RSVP_RESPONSES {
     uuid id PK
+    uuid event_id FK
     uuid guest_group_id FK
+    text response_status
+    integer attendee_count
+    timestamptz responded_at
+  }
+  GUEST_RSVP_ATTENDEES {
+    uuid id PK
+    uuid event_id FK
+    uuid response_id FK
+    integer sort_order
+  }
+  CURRENT_GUEST_RSVPS {
+    uuid event_id
+    uuid guest_group_id
+    uuid response_id
     text response_status
     integer attendee_count
   }
@@ -60,10 +145,57 @@ erDiagram
     uuid event_id PK,FK
     uuid guest_group_id PK,FK
     uuid table_id FK
+    uuid assigned_by_account_id FK "nullable"
+  }
+  EVENT_FLOOR_OBJECTS {
+    uuid id PK
+    uuid event_id FK
+    text object_type
+  }
+  EVENT_SONG_SUGGESTIONS {
+    uuid id PK
+    uuid event_id FK
+    text status
+    uuid moderated_by_account_id FK "nullable"
+  }
+  EVENT_MEDIA {
+    uuid id PK
+    uuid event_id FK
+    uuid uploaded_by_guest_group_id FK "nullable"
+    text object_key UK
+    text moderation_status
+    timestamptz deleted_at
+  }
+  EVENT_ACTIVITY_LOG {
+    uuid id PK
+    uuid event_id FK
+    uuid actor_account_id FK "nullable"
+    text action
   }
   EVENT_ENTITLEMENTS {
     uuid event_id PK,FK
     text plan_code
     text status
     text external_entitlement_id UK
+  }
+  BILLING_EVENT_RECEIPTS {
+    text external_event_id PK
+    uuid event_id FK "nullable"
+    boolean signature_verified
+    text processing_status
+  }
+  NUPICIAL_DEMO_STATE {
+    smallint id PK "development only"
+    jsonb payload
+    bigint version
+  }
+  NUPICIAL_DEMO_PAYMENTS {
+    uuid id PK "development only"
+    jsonb payload
+    timestamptz updated_at
+  }
+  NUPICIAL_DEMO_SESSIONS {
+    uuid id PK "development only"
+    text email
+    timestamptz expires_at
   }

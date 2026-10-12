@@ -5,14 +5,19 @@
 ## Cerrado en implementación actual
 
 - Registro, verificación de correo, login, logout y recuperación de contraseña.
+- Contraseña elegida por el dueño al verificar correo; reenvíos conservan enlaces vigentes y el primer uso invalida los demás, evitando pre-hijacking.
 - Sesiones revocables, hash scrypt y límites persistentes.
 - Cuenta 1:N eventos, selector de evento y autorización por cuenta/evento.
 - Publicación/despublicación por slug y enlaces personalizados por invitado.
+- URL pública explícita resuelve el slug aun si el navegador mantiene otra sesión; abrir enlace personal incluye slug.
 - Proyección pública; RSVP, canciones y galería vuelven al evento correcto.
 - Prueba A/B de aislamiento entre dos cuentas.
 - Migraciones automáticas `001` y `002`.
 - Inicio, catálogo, 27 combinaciones, onboarding y todos los paneles cliente.
 - Checkout ficticio sin tarjeta/dinero; billing real separado.
+- Demo cloud puede habilitar el checkout ficticio explícitamente sin activar login de desarrollo ni cookies inseguras.
+- Conflicto `409` devuelve revisión del evento activo; restore tenant preserva `id/slug/status` y reset seed queda solo demo.
+- Veintitrés mapas: auth, evento/publicación, concurrencia/respaldo, medios, entitlements y operación incluidos.
 
 ## Pendientes priorizados
 
@@ -24,10 +29,14 @@
 | P0 | Privacidad | Términos, aviso, consentimiento, exportación/borrado de cuenta y calendario de retención. |
 | P1 | Operación | Logs estructurados, métricas, alertas, trazas, rotación de secretos y runbooks. |
 | P1 | E2E | Navegador real: registro, dos tenants, eventos, publicación, RSVP, medios y recuperación. |
+| P1 | Onboarding durable | Conservar tema/paleta/datos al abrir verificación en otra pestaña o dispositivo; hoy vive en `sessionStorage`. |
+| P1 | Planes y cupos | Definir matriz de entitlements y aplicarla en API/UI; hoy plan y cupos son demostrativos. |
+| P1 | Moderación | Fotos públicas deben pasar por estado pendiente/aprobada/rechazada antes de mostrarse. |
 | P1 | Colaboradores | UI/API para invitar editor/viewer; expiración/revocación de invitaciones. |
 | P1 | Datos | Migrar módulos desde documento JSONB a repositorios relacionales cuando escala/concurrencia lo exijan. |
+| P1 | Plano de mesas | Migrar grupo→mesa a persona→silla; IDs estables de asistentes/sillas, preview familiar, sugerencias y control concurrente de silla única. |
 | P1 | Mensajes | Email/WhatsApp transaccional con consentimiento, estados y reintentos. |
-| P2 | Producto | Check-in QR, dominios personalizados, OG dinámico, PDF propio y analítica de aperturas. |
+| P2 | Producto | PDF A3 propio del plano, alinear/espaciar, check-in QR, dominios personalizados, OG dinámico y analítica de aperturas. |
 
 ## Criterio de salida a nube pública
 

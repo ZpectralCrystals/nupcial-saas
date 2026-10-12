@@ -6,7 +6,7 @@ flowchart LR
   access["Registro / acceso"]
   check{"¿Cuenta tiene eventos?"}
   workspace[("Evento nuevo limpio")]
-  checkout["Plan elegido"]
+  checkout["Planes / checkout opcional"]
   existing["Elegir evento existente"]
   client["Panel del cliente"]
   edit["Editor de invitación"]
@@ -22,9 +22,10 @@ flowchart LR
   access --> check
   check -->|"No · crear evento"| workspace
   check -->|"Sí · seleccionar"| existing
-  workspace -->|"Plan seleccionado"| checkout
-  checkout -->|"Sin cobro real"| client
+  workspace -->|"Abrir panel"| client
   existing -->|"Abrir evento"| client
+  client -->|"Opcional"| checkout
+  checkout -->|"Volver / mock aprobado"| client
   client --> edit
   edit --> invite
   client -->|"Organiza"| manage

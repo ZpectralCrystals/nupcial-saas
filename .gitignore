@@ -8,3 +8,6 @@ npm-debug.log*
 coverage/
 .idea/
 .vscode/
+
+# Grabaciones locales: pueden contener datos de cuentas y superar el límite de GitHub.
+docs/*.mov

@@ -1,0 +1,31 @@
+flowchart LR
+  upload["Carga invitado / cliente"]
+  rate{"Rate limit y sección"}
+  validate{"Validar tipo, firma y tamaño"}
+  quota{"Límite técnico"}
+  jsonb[("Base64 en payload")]
+  visible["Visible en invitación"]
+  panel["Panel de galería"]
+  moderate["Cola aprobar / rechazar — PENDIENTE"]
+  object["Object storage privado — PENDIENTE"]
+  scan["Escaneo / cuarentena — PENDIENTE"]
+  signed["URL firmada / CDN — PENDIENTE"]
+  retention["Retención y borrado — PENDIENTE"]
+  reject["Rechazar carga"]
+  metadata["event_media — PENDIENTE"]
+  upload --> rate
+  rate -->|"Permitido"| validate
+  rate -->|"No"| reject
+  validate -->|"Válido"| quota
+  validate -->|"No"| reject
+  quota -->|"Actual"| jsonb
+  quota -->|"Excede"| reject
+  jsonb --> visible
+  visible --> panel
+  panel -.->|"Objetivo"| moderate
+  upload -.->|"Producción"| object
+  object -.-> scan
+  scan -.-> moderate
+  moderate -.-> signed
+  signed -.-> retention
+  object -.-> metadata

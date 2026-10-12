@@ -23,9 +23,9 @@ La demo está en `http://localhost:4173`; datos de acceso iguales. PostgreSQL lo
 
 ## Recorrido listo para demo
 
-Inicio → modelos → 27 combinaciones de diseño/paleta → datos del evento → acceso demo → espacio limpio (solo si instalación no tiene evento) → Planes → compra ficticia → panel → invitados / RSVP / mesas / canciones / invitación / galería → enlace personalizado → respuesta pública. El servidor devuelve solo los detalles autorizados; nunca expone teléfonos/notas privadas en la invitación. Si la instalación ya contiene un evento, el alta nueva vuelve al evento actual sin modificarlo.
+Inicio → modelos → 27 combinaciones de diseño/paleta → datos del evento → registro por correo → verificación y creación de contraseña → evento limpio → panel → invitados / RSVP / mesas / canciones / invitación / galería → publicación → enlace personalizado → respuesta pública. Planes y compra ficticia son un recorrido opcional desde el panel. El servidor devuelve solo los detalles autorizados; nunca expone teléfonos/notas privadas en la invitación.
 
-En el panel, `Planes` permite elegir Esencial, Premium o Deluxe. El servidor calcula el importe y crea un checkout. En modo `mock`, la demo muestra aprobación/rechazo simulados; no cobra ni envía datos a una pasarela. La activación depende del resultado del servidor. Las funciones existentes del panel siguen disponibles para ensayar toda la estructura.
+En el panel, `Planes` permite elegir Esencial, Premium o Deluxe. El servidor calcula el importe y crea un checkout. En modo `mock`, la demo muestra aprobación/rechazo simulados; no cobra ni envía datos a una pasarela. La aprobación cambia el plan de demostración; los cupos y funciones por plan todavía son informativos, no reglas productivas.
 
 Incluye inicio comercial, probador, invitación pública de muestra, login con cookie de sesión, almacenamiento JSON local o PostgreSQL, sincronización del panel, respuestas públicas, sugerencias musicales, galería pública limitada, exportaciones/importaciones y copia de respaldo. Planes de referencia en soles: S/ 69, S/ 119 y S/ 199; ajustar a la decisión comercial antes de cobrar.
 
@@ -37,7 +37,7 @@ Frontend HTML/CSS/JavaScript sin framework; servidor Node.js ES Modules y HTTP n
 
 ## Cobros — fuera del alcance actual
 
-No se hizo ni probó cobro real. Checkout ficticio funciona solo en local. Retiré adaptador Mercado Pago del backend principal; producción usa `PAYMENT_PROVIDER=external`, que bloquea checkout hasta conectar servicio billing aparte. Contrato entitlement queda pendiente; sin claves de pasarela en esta app.
+No se hizo ni probó cobro real. Retiré adaptador Mercado Pago del backend principal; producción usa `PAYMENT_PROVIDER=external`, que bloquea checkout hasta conectar servicio billing aparte. Para publicar una demo cloud con compra ficticia se puede definir `PAYMENT_PROVIDER=mock` y `ALLOW_MOCK_PAYMENTS=true` manteniendo `NODE_ENV=production`: conserva cookies `Secure`, PostgreSQL/correo obligatorios y login demo deshabilitado. Nunca usar esa bandera como activación comercial. Contrato entitlement queda pendiente; sin claves de pasarela en esta app.
 
 ## Despliegue
 
@@ -57,8 +57,10 @@ Antes de aceptar usuarios reales aún deben validarse PostgreSQL y correo en el 
 
 ## Diagramas y verificación
 
-Rutas y recorrido manual: [docs/manual-testing.md](docs/manual-testing.md). Mapa navegable (incluye cardinalidad 1:N y flujo multi-cuenta): [docs/system-map.html](docs/system-map.html). Arquitectura y brechas: [docs/architecture.md](docs/architecture.md), [docs/next-iteration.md](docs/next-iteration.md). Auditoría de módulos: [docs/client-audit.md](docs/client-audit.md). Regenerar diagramas Mermaid/SVG con `node docs/export-diagrams.cjs`.
+Rutas y recorrido manual: [docs/manual-testing.md](docs/manual-testing.md). Estado, porcentaje y roadmap: [docs/project-status.md](docs/project-status.md). Mapa navegable (incluye cardinalidad 1:N y flujo multi-cuenta): [docs/system-map.html](docs/system-map.html). Arquitectura y brechas: [docs/architecture.md](docs/architecture.md), [docs/next-iteration.md](docs/next-iteration.md). Auditoría de módulos: [docs/client-audit.md](docs/client-audit.md). Regenerar diagramas Mermaid/SVG con `node docs/export-diagrams.cjs`.
 
 ```bash
 npm test
 ```
+
+CI también levanta PostgreSQL 17 aislado y ejecuta `npm run test:postgres`: migraciones, alta/verificación, evento, publicación, escritura pública, mock e intento cross-tenant.

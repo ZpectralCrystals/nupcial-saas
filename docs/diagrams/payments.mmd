@@ -8,7 +8,7 @@ flowchart LR
   billing["Servicio billing externo — PENDIENTE"]
   entitlement["Entitlement firmado — PENDIENTE"]
   other["Pendiente / rechazo"]
-  separate["Proveedor / webhooks — PENDIENTE"]
+  separate["Proveedor / webhook — PENDIENTE"]
   main["Aplicación principal — PENDIENTE"]
   owner --> catalog
   catalog --> order
@@ -16,7 +16,9 @@ flowchart LR
   mock -->|"Resultado ficticio"| decision
   decision -->|"Sí"| activate
   decision -->|"No"| other
-  billing -.-> separate
-  separate -.-> entitlement
-  entitlement -.-> main
-  main -->|"Contrato objetivo"| activate
+  main -.->|"Crear checkout"| billing
+  billing -.->|"Coordinar proveedor"| separate
+  separate -.->|"Webhook verificado"| billing
+  billing -.->|"Emitir firmado"| entitlement
+  entitlement -.->|"Aplicar idempotente"| main
+  main -.->|"Contrato objetivo"| activate

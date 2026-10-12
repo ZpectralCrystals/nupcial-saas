@@ -10,6 +10,20 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: nupcial_smoke
+          POSTGRES_USER: nupcial
+          POSTGRES_PASSWORD: nupcial-ci-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nupcial -d nupcial_smoke"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -18,3 +32,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - run: npm run test:postgres
+        env:
+          DATABASE_URL: postgres://nupcial:nupcial-ci-only@127.0.0.1:5432/nupcial_smoke
+          PGSSLMODE: disable
+          SMOKE_CONFIRM: isolated-database

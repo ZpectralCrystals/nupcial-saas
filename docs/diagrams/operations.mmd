@@ -1,0 +1,33 @@
+flowchart LR
+  browser["Navegador"]
+  tls["DNS + TLS + ingress — PENDIENTE"]
+  app["Node SaaS"]
+  ready["Health / readiness"]
+  secrets["Gestor de secretos — PENDIENTE"]
+  pg["PostgreSQL administrado — PENDIENTE"]
+  objects["Object storage / CDN — PENDIENTE"]
+  email["Proveedor de email — PENDIENTE"]
+  logs["Logs estructurados — PENDIENTE"]
+  metrics["Métricas + trazas — PENDIENTE"]
+  alerts["Alertas + runbooks — PENDIENTE"]
+  backup["Backup + restore — PENDIENTE"]
+  notice["Privacidad y términos — PENDIENTE"]
+  export["Exportar cuenta — PENDIENTE"]
+  delete["Cerrar / borrar — PENDIENTE"]
+  retention["Calendario de retención — PENDIENTE"]
+  browser -.-> tls
+  tls -.-> app
+  app --> ready
+  secrets -.-> app
+  app -.-> pg
+  app -.-> objects
+  app -.-> email
+  app -.-> logs
+  logs -.-> metrics
+  metrics -.-> alerts
+  pg -.-> backup
+  browser -.->|"Antes de registrar"| notice
+  notice -.-> export
+  export -.-> delete
+  delete -.-> retention
+  backup -.-> retention

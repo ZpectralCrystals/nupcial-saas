@@ -19,6 +19,7 @@ flowchart LR
   rsvpApi -->|"Actualiza"| database
   rsvpApi -.->|"Carga temporal"| files
   admin -->|"Cuenta"| auth
-  api -.->|"Entitlement / webhook firmado"| billing
+  api -.->|"Crear checkout"| billing
+  billing -.->|"Entitlement firmado"| api
   api -.->|"Pendiente"| jobs
   jobs -.-> delivery

@@ -7,6 +7,7 @@ flowchart LR
   session["Sesión revocable"]
   permission["Autorizar evento"]
   repo[("Repositorio aislado")]
+  membership[("Membresía adicional")]
   migration["Normalizar colecciones — PENDIENTE"]
   link["Código de invitado"]
   rsvp["RSVP"]
@@ -18,12 +19,15 @@ flowchart LR
   ops["Operación — PENDIENTE"]
   signup --> verify
   verify --> account
-  account -->|"1:N"| newEvent
+  account -->|"1:N propietario"| newEvent
+  account -->|"1:N membresías"| membership
+  membership -->|"N:1 evento"| newEvent
   login --> session
   session --> permission
   account -->|"Identidad"| permission
+  membership -->|"Rol"| permission
   permission -->|"¿Pertenece?"| repo
-  migration --> repo
+  migration -.-> repo
   repo --> modules
   modules --> link
   link --> rsvp
@@ -31,4 +35,4 @@ flowchart LR
   slug --> public
   public --> projection
   repo --> tests
-  ops -->|"Observabilidad / protección"| repo
+  ops -.->|"Observabilidad / protección"| repo

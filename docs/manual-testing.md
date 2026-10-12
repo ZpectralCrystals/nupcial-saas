@@ -11,7 +11,7 @@ npm start
 
 Base: `http://127.0.0.1:4173/`
 
-Cuenta demo local: `demo@boda.local` / `demo123`. Para probar aislamiento SaaS, crear cuentas nuevas con correos ficticios y contraseñas de 12 caracteres o más. En desarrollo, registro y recuperación muestran el enlace local directamente; no necesitan proveedor de correo.
+Cuenta demo local: `demo@boda.local` / `demo123`. Para probar aislamiento SaaS, solicitar cuentas con correos ficticios y crear una contraseña de 12 caracteres o más al abrir el enlace de verificación. En desarrollo, registro y recuperación muestran el enlace local directamente; no necesitan proveedor de correo.
 
 ## Rutas UI
 
@@ -29,8 +29,8 @@ Cuenta demo local: `demo@boda.local` / `demo123`. Para probar aislamiento SaaS, 
 | `/#/start?tema=versalles&paleta=dorado&plan=premium` | Alta de celebración en tres pasos. |
 | `/#/login` | Login demo o cuenta verificada. |
 | `/#/login?next=plans` | Login y regreso a planes. |
-| `/#/register` | Registro de cuenta SaaS. |
-| `/#/verify?token=<token>` | Verificación de correo. |
+| `/#/register` | Solicita registro con correo; todavía no fija contraseña. |
+| `/#/verify?token=<token>` | Verifica el correo y permite crear la contraseña. |
 | `/#/forgot-password` | Solicitud de recuperación. |
 | `/#/reset-password?token=<token>` | Cambio de contraseña. |
 | `/#/public` | Vista previa del evento activo cuando existe sesión. |
@@ -56,7 +56,7 @@ Valores admitidos:
 | `/#/dashboard` | Resumen, publicación, despublicación y copia de enlace. |
 | `/#/guests` | CRUD, filtros, importación CSV/XLSX, exportación y links personalizados. |
 | `/#/rsvp` | Confirmaciones, filtros, exportación y respuesta manual. |
-| `/#/tables` | Plano, mesas, objetos, drag/drop, cupos, autoasignación e impresión. |
+| `/#/tables` | Plano local grupo→mesa, objetos, drag/drop, cupos, autoasignación e impresión. Las sillas todavía no se persisten individualmente. |
 | `/#/songs` | Búsqueda y moderación de sugerencias. |
 | `/#/invitation` | Editor. Pestañas internas: diseño, datos, itinerario, familia, detalles, regalos, música y fotos. |
 | `/#/gallery` | Activación, carga, selección, ZIP, borrado, enlace y QR. |
@@ -69,17 +69,31 @@ Sin sesión, rutas protegidas redirigen a `/#/login`. Cuenta SaaS sin evento act
 
 1. Abrir inicio, sus tres secciones, catálogo, planes y playground.
 2. Probar los tres temas, nueve paletas y vistas escritorio/móvil.
-3. Completar onboarding; crear cuenta; abrir enlace local de verificación; iniciar sesión.
+3. Completar onboarding; solicitar cuenta; abrir enlace local, crear contraseña y luego iniciar sesión.
 4. Confirmar creación de celebración y panel vacío.
 5. Crear segundo evento desde `/#/start`; cambiar entre ambos desde `/#/events`; comprobar que invitados y cambios no se mezclan.
 6. Recorrer las ocho pestañas del editor y guardar datos.
 7. Crear invitado, importar CSV/XLSX, exportar y copiar enlace personalizado.
 8. Publicar desde dashboard. Cerrar sesión y abrir enlace general/personal.
 9. Enviar RSVP, canción y foto. Regresar al panel y comprobar datos en Confirmaciones, Canciones y Galería.
-10. Crear mesas y objetos, asignar grupos, ejecutar autoasignación, revisar cupos e imprimir.
+10. Crear mesas y objetos, asignar grupos, ejecutar autoasignación, revisar cupos e imprimir. Verificar que un grupo ocupa `confirmedCount` lugares y que la UI no afirme haber persistido una silla específica.
 11. Ir a Planes con sesión. Crear checkout mock y probar `pending`, `approved`, `rejected` y `cancelled` en intentos separados. Solo `approved` activa plan.
 12. Solicitar recuperación, cambiar contraseña y confirmar que sesiones anteriores quedaron revocadas.
 13. Despublicar evento. Su URL pública debe responder “Invitación no publicada”. Probar también slug y código de invitado inválidos.
+
+## Checklist de paridad pendiente para plano persona↔silla
+
+La referencia funcional completa está en [reference-festejabonito-client-seating.md](reference-festejabonito-client-seating.md). Estos casos deben añadirse cuando Nupcial implemente el nuevo modelo:
+
+1. Cada acompañante confirmado conserva ID estable y aparece una sola vez en el pool.
+2. Cada silla tiene ID estable dentro de su mesa; una silla admite máximo una persona.
+3. Drag/drop y alternativa de teclado asignan persona→silla; liberar devuelve persona al pool.
+4. Asignar familia completa no excede capacidad ni duplica integrantes.
+5. Autoasignación muestra preview antes de aplicar, conserva familias y ofrece mesas sugeridas.
+6. Reducir RSVP o reabrir respuesta aplica una política explícita sobre sillas existentes.
+7. Dos sesiones que intentan la misma silla producen un ganador y un conflicto recuperable.
+8. Alinear, espaciar, reset confirmado, undo y save no afectan otro evento.
+9. Exportación genera PDF A3 horizontal de dos páginas sin datos de otro tenant.
 
 ## Prueba de aislamiento obligatoria
 
@@ -97,8 +111,8 @@ Sin sesión, rutas protegidas redirigen a `/#/login`. Cuenta SaaS sin evento act
 | `GET` | `/api/ready` | Público | Storage disponible y modo de pagos. |
 | `GET` | `/api/config` | Público | Configuración segura para frontend. |
 | `GET` | `/api/auth/session` | Cookie opcional | Estado de sesión. |
-| `POST` | `/api/auth/register` | Público | `{email,password}`. |
-| `POST` | `/api/auth/verify` | Público | `{token}`. |
+| `POST` | `/api/auth/register` | Público | `{email}`; no fija una contraseña utilizable. |
+| `POST` | `/api/auth/verify` | Público | `{token,password}`; activa cuenta y fija la clave. |
 | `POST` | `/api/auth/password-reset/request` | Público | `{email}`. |
 | `POST` | `/api/auth/password-reset/confirm` | Público | `{token,password}`. |
 | `POST` | `/api/auth/login` | Público | `{email,password}`; crea cookie. |

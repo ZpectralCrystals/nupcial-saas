@@ -16,6 +16,8 @@ Estado revisado: 11 de octubre de 2026. Nupcial es **un solo SaaS multi-cuenta**
 
 No se usan React, Next.js, Express, ORM ni microservicios. Aplicación y API comparten origen.
 
+Esta tabla describe **Nupcial**, no el sitio usado como referencia. La interfaz pública observable de Festeja Bonito usa Next.js/React sobre Vercel, Tailwind CSS + CSS Modules y Lucide; su plano usa SVG, una capa compatible con `@dnd-kit` inferida y jsPDF 4.2.1. Evidencia, certeza y diferencias: [reference-festejabonito-client-seating.md](reference-festejabonito-client-seating.md).
+
 ## Arquitectura ejecutable
 
 ```mermaid
@@ -56,7 +58,7 @@ flowchart LR
   Slug --> Guest[RSVP / música / galería]
 ```
 
-- Registro, verificación, login y recuperación usan tokens de un uso y límites persistentes.
+- Registro solicita solo correo. El token de un uso permite que el dueño del correo cree la contraseña al verificar; así un registro previo no fija una clave conocida por otra persona. Login y recuperación usan límites persistentes.
 - Cada sesión de cuenta selecciona un evento accesible.
 - Owner/editor pueden editar; viewer queda bloqueado en escritura. La interfaz para invitar colaboradores aún no existe.
 - Cada lectura/escritura privada resuelve pertenencia de cuenta/evento. Pruebas A/B intentan seleccionar o modificar evento ajeno.
@@ -74,7 +76,7 @@ Esto ya evita antiguo singleton global para cuentas SaaS. `nupcial_demo_state` p
 - Fotos, portada y audio siguen embebidos en JSONB como data URLs. Antes de carga real: object storage privado, URLs firmadas, cuotas, borrado y retención.
 - Producción requiere proveedor HTTPS de email. Deben validarse contrato, dominio remitente, rebotes y entregabilidad.
 - WhatsApp es enlace preparado; no hay envío automático.
-- Billing real queda fuera. Producción usa `PAYMENT_PROVIDER=external`; no existen tarjeta, SDK de pasarela o webhook en esta app.
+- Billing real queda fuera. Producción comercial usa `PAYMENT_PROVIDER=external`; no existen tarjeta, SDK de pasarela o webhook en esta app. Una demo cloud puede habilitar explícitamente `PAYMENT_PROVIDER=mock` + `ALLOW_MOCK_PAYMENTS=true` sin rebajar `NODE_ENV`, cookies ni autenticación.
 
 ## Estado de preparación
 
@@ -83,7 +85,7 @@ Listo para demo local:
 - Flujo visitante → cuenta → evento → panel → publicación → RSVP/música/galería.
 - Múltiples cuentas y eventos aislados.
 - Pago ficticio completo.
-- 66 pruebas automatizadas.
+- Suite automatizada de dominio, UI generada, API, aislamiento, esquema y diagramas.
 
 Antes de producción pública:
 

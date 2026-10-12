@@ -1,0 +1,32 @@
+flowchart LR
+  choose["Elegir plan"]
+  preference[("Preferencia en evento")]
+  features["Funciones abiertas"]
+  advisory["Cupos informativos — PENDIENTE"]
+  checkout["Checkout mock opcional"]
+  result{"Resultado ficticio"}
+  demoActive[("Plan demo activo")]
+  noChange["Sin cambio"]
+  billing["Billing externo — PENDIENTE"]
+  signed["Entitlement firmado — PENDIENTE"]
+  verify["Validar + deduplicar — PENDIENTE"]
+  grant["Aplicar entitlement — PENDIENTE"]
+  limits["Matriz de límites — PENDIENTE"]
+  enforce["Enforcement API + UI — PENDIENTE"]
+  upgrade["Ampliar / renovar — PENDIENTE"]
+  revoke["Expirar / suspender — PENDIENTE"]
+  choose --> preference
+  preference --> features
+  features -.-> advisory
+  choose --> checkout
+  checkout --> result
+  result -->|"Aprobado"| demoActive
+  result -->|"Otro"| noChange
+  billing -.-> signed
+  signed -.-> verify
+  verify -.-> grant
+  grant -.-> limits
+  limits -.-> enforce
+  enforce -.-> upgrade
+  upgrade -.-> billing
+  grant -.-> revoke

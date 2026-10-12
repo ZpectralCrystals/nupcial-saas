@@ -69,7 +69,9 @@ let tenantEvents = [];
 let currentAccountEmail = '';
 let startupError = '';
 let remotePublic = false;
+let publicContextActive = false;
 let publicLoadError = "";
+let navigationEpoch = 0;
 let paymentMode = "mock";
 let serverStateVersion = 0;
 let remoteConflict = false;
@@ -153,7 +155,7 @@ function saveDB(message = "Cambios guardados") {
     const next = JSON.stringify(db);
     if (!(apiMode && tenantMode && isAuthed())) localStorage.setItem(DB_KEY, next);
     savedDBSnapshot = next;
-    if (apiMode && isAuthed() && !remotePublic && !remoteConflict) {
+    if (apiMode && isAuthed() && !publicContextActive && !remoteConflict) {
       const snapshot = JSON.parse(next);
       remoteSaveQueue = remoteSaveQueue.catch(() => {}).then(async () => {
         if (remoteConflict) return;
@@ -170,7 +172,7 @@ function saveDB(message = "Cambios guardados") {
       toast("Conflicto de otra pestaña: esta copia queda local. Recarga antes de seguir.");
     }
     document.documentElement.style.setProperty("--brand", db.event.primary);
-    toast(apiMode && isAuthed() && !remotePublic ? `${message} · sincronizando` : message);
+    toast(apiMode && isAuthed() && !publicContextActive ? `${message} · sincronizando` : message);
     return true;
   } catch {
     db = JSON.parse(savedDBSnapshot);
@@ -192,6 +194,13 @@ function hashParams() { return new URLSearchParams(location.hash.split("?")[1] |
 function publicEventSlug() { return new URLSearchParams(location.search).get('event') || hashParams().get('event') || ''; }
 function isAuthed() { return sessionStorage.getItem(AUTH_KEY) === "1"; }
 function go(path) { modal=null;location.hash = `#/${path}`; mobileOpen = false; }
+function clearPublicEventQuery() {
+  const query = new URLSearchParams(location.search);
+  if (!query.has('event')) return;
+  query.delete('event');
+  const search = query.toString();
+  history.replaceState(null, '', `${location.pathname}${search ? `?${search}` : ''}${location.hash}`);
+}
 
 async function apiRequest(path, options = {}) {
   const response = await fetch(path, { credentials: "same-origin", ...options });
@@ -200,21 +209,30 @@ async function apiRequest(path, options = {}) {
   return result;
 }
 
-async function loadRemotePublic() {
-  if (!apiMode || isAuthed()) return false;
+async function loadRemotePublic(isCurrent = () => true) {
+  const slug = publicEventSlug();
+  // Explicit public URLs must resolve their slug even when this browser also
+  // has an authenticated owner session.
+  if (!apiMode || (isAuthed() && !slug)) {
+    if (isCurrent()) publicContextActive = false;
+    return false;
+  }
+  if (!isCurrent()) return false;
+  publicContextActive = true;
   remotePublic = false;
   publicLoadError = "";
   const code = hashParams().get("guest") || "";
-  const slug = publicEventSlug();
   try {
     const query = new URLSearchParams({ ...(slug ? { event: slug } : {}), ...(code ? { guest: code } : {}) });
     const result = await apiRequest(`/api/public/state?${query}`);
+    if (!isCurrent()) return false;
     if (!result.state?.event) { publicLoadError = "Esta invitación todavía no está publicada."; return false; }
     if (code && !(result.state.guests || []).some(guest => guest.code === code)) { publicLoadError = "Este enlace personalizado no es válido o ya no está activo."; return false; }
     db = { ...structuredClone(seed), ...result.state, event: { ...structuredClone(seed.event), ...result.state.event } };
     remotePublic = true;
     return true;
   } catch (error) {
+    if (!isCurrent()) return false;
     const message = String(error.message || "");
     publicLoadError = message.includes("no encontrada")
       ? "Este enlace personalizado no es válido o ya no está activo. Pide a los organizadores un enlace actualizado."
@@ -226,13 +244,18 @@ async function loadRemotePublic() {
 }
 
 async function initializeApp() {
+  const epoch = ++navigationEpoch;
+  const isCurrent = () => epoch === navigationEpoch;
   remotePublic = false;
+  publicContextActive = false;
   publicLoadError = "";
   startupError = '';
   try {
     const session = await apiRequest("/api/auth/session");
+    if (!isCurrent()) return;
     apiMode = true;
     const config = await apiRequest("/api/config");
+    if (!isCurrent()) return;
     apiDemoMode = Boolean(config.demo);
     paymentMode = config.paymentMode || "mock";
     if (session.authenticated) {
@@ -240,28 +263,59 @@ async function initializeApp() {
       sessionStorage.setItem(AUTH_KEY, "1");
       currentAccountEmail = session.email || '';
       tenantMode = !session.legacy;
-      if (tenantMode) await restoreTenantWorkspace(session.activeEventId);
+      const explicitPublic = route() === "public" && Boolean(publicEventSlug());
+      if (explicitPublic) await loadRemotePublic(isCurrent);
+      else if (tenantMode) await restoreTenantWorkspace(session.activeEventId, isCurrent);
       else {
         const result = await apiRequest("/api/state");
         serverStateVersion = result.version || 0; remoteConflict = false;
         if (result.state) db = normalizeDB(result.state);
         else { const saved = await apiRequest("/api/state", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ state: db, version: serverStateVersion }) }); serverStateVersion = saved.version; }
       }
-      if (tenantMode && route() === 'login') go(db.event.slug ? 'dashboard' : tenantEvents.length ? 'events' : 'start?tema=versalles&paleta=dorado&plan=essential');
+      if (!explicitPublic && tenantMode && route() === 'login') go(db.event.slug ? 'dashboard' : tenantEvents.length ? 'events' : 'start?tema=versalles&paleta=dorado&plan=essential');
     } else {
       sessionStorage.removeItem(AUTH_KEY); tenantMode = false; currentAccountEmail = '';
-      if (route() === "public") await loadRemotePublic();
+      if (route() === "public") await loadRemotePublic(isCurrent);
     }
   } catch (error) {
+    if (!isCurrent()) return;
     if (!apiMode) apiMode = false;
     else startupError = 'No pudimos conectar con tus datos guardados. Recarga cuando el servicio vuelva a estar disponible.';
     remotePublic = false;
   }
+  if (!isCurrent()) return;
   if (!tenantMode) savedDBSnapshot = JSON.stringify(db);
   document.documentElement.style.setProperty("--brand", db.event.primary);
   render();
   if (route() === "checkout") refreshCheckoutPage();
   if (route() === "payment-result") refreshPaymentResult();
+}
+
+async function restoreAuthenticatedWorkspace(isCurrent = () => true) {
+  const session = await apiRequest("/api/auth/session");
+  if (!isCurrent()) return false;
+  if (!session.authenticated) {
+    sessionStorage.removeItem(AUTH_KEY);
+    tenantMode = false;
+    currentAccountEmail = "";
+    return false;
+  }
+  currentAccountEmail = session.email || "";
+  tenantMode = !session.legacy;
+  if (tenantMode) {
+    if (!await restoreTenantWorkspace(session.activeEventId, isCurrent)) return false;
+  } else {
+    const result = await apiRequest("/api/state");
+    if (!isCurrent()) return false;
+    serverStateVersion = result.version || 0;
+    remoteConflict = false;
+    if (result.state) db = normalizeDB(result.state);
+    savedDBSnapshot = JSON.stringify(db);
+  }
+  remotePublic = false;
+  publicContextActive = false;
+  publicLoadError = "";
+  return true;
 }
 
 function emptyTenantState() {
@@ -270,23 +324,28 @@ function emptyTenantState() {
   state.itinerary=[];state.gifts=[];state.guests=[];state.tables=[];state.floorObjects=[];state.songs=[];state.gallery=[];state.galleryEnabled=true;
   return state;
 }
-async function restoreTenantWorkspace(activeEventId = null) {
-  tenantEvents = (await apiRequest('/api/events')).events || [];
+async function restoreTenantWorkspace(activeEventId = null, isCurrent = () => true) {
+  const events = (await apiRequest('/api/events')).events || [];
+  if (!isCurrent()) return false;
   let chosen = activeEventId;
-  if (!chosen && tenantEvents.length === 1) {
-    const selected = await apiRequest(`/api/events/${tenantEvents[0].id}/select`, { method: 'POST' });
+  if (!chosen && events.length === 1) {
+    const selected = await apiRequest(`/api/events/${events[0].id}/select`, { method: 'POST' });
+    if (!isCurrent()) return false;
     chosen = selected.eventId;
   }
   if (chosen) {
     const result = await apiRequest('/api/state');
+    if (!isCurrent()) return false;
     if (!result.state) throw new Error('La celebración seleccionada no está disponible.');
-    serverStateVersion=result.version;db=normalizeDB(result.state);db.event.slug=result.slug;db.event.id=result.eventId;db.event.status=result.eventStatus;remoteConflict=false;
-    if (tenantEvents.length > 1 && !activeEventId && tenantEvents.some(event=>event.id!==chosen)) go('events');
+    const nextDB=normalizeDB(result.state);nextDB.event.slug=result.slug;nextDB.event.id=result.eventId;nextDB.event.status=result.eventStatus;
+    tenantEvents=events;serverStateVersion=result.version;db=nextDB;remoteConflict=false;
+    if (events.length > 1 && !activeEventId && events.some(event=>event.id!==chosen)) go('events');
   } else {
-    serverStateVersion=0;db=emptyTenantState();
-    if (tenantEvents.length) go('events'); else go('start?tema=versalles&paleta=dorado&plan=essential');
+    tenantEvents=events;serverStateVersion=0;db=emptyTenantState();
+    if (events.length) go('events'); else go('start?tema=versalles&paleta=dorado&plan=essential');
   }
   savedDBSnapshot=JSON.stringify(db);
+  return true;
 }
 async function createTenantWorkspace(state) {
   const response = await apiRequest('/api/events', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ state }) });
@@ -426,9 +485,9 @@ function loginPage() {
 }
 
 function registerPage() {
-  return `<main class="login-page"><section class="login-panel"><a class="brand" href="#/home"><span class="brand-mark">N</span><span>Nupcial</span></a><h1>Comencemos</h1><p class="subtitle">Crea tu cuenta privada. Luego podrás administrar varias celebraciones por separado.</p><form id="register-form" class="grid"><div class="field"><label for="register-email">Correo electrónico</label><input class="input" id="register-email" name="email" type="email" required maxlength="254" autocomplete="email"></div><div class="field"><label for="register-password">Contraseña</label><input class="input" id="register-password" name="password" type="password" required minlength="12" maxlength="128" autocomplete="new-password"><small>12 caracteres o más.</small></div><div class="field"><label for="register-confirm">Repite la contraseña</label><input class="input" id="register-confirm" name="confirm" type="password" required minlength="12" maxlength="128" autocomplete="new-password"></div><p id="register-status" class="demo-note" role="status" aria-live="polite"></p><button class="btn">Crear cuenta</button></form><nav class="auth-links"><a href="#/login">Ya tengo cuenta</a><a href="#/home">Volver al inicio</a></nav></section><section class="login-art"><div><div class="eyebrow" style="color:#fff">Tus celebraciones, separadas</div><h2>Un espacio propio para cada historia.</h2><p>Invitados, confirmaciones, mesas y recuerdos quedan bajo tu cuenta.</p></div></section></main>`;
+  return `<main class="login-page"><section class="login-panel"><a class="brand" href="#/home"><span class="brand-mark">N</span><span>Nupcial</span></a><h1>Comencemos</h1><p class="subtitle">Primero confirma que el correo es tuyo. Crearás tu contraseña desde ese enlace seguro.</p><form id="register-form" class="grid"><div class="field"><label for="register-email">Correo electrónico</label><input class="input" id="register-email" name="email" type="email" required maxlength="254" autocomplete="email"></div><p id="register-status" class="demo-note" role="status" aria-live="polite"></p><button class="btn">Enviar enlace de confirmación</button></form><nav class="auth-links"><a href="#/login">Ya tengo cuenta</a><a href="#/home">Volver al inicio</a></nav></section><section class="login-art"><div><div class="eyebrow" style="color:#fff">Tus celebraciones, separadas</div><h2>Un espacio propio para cada historia.</h2><p>Invitados, confirmaciones, mesas y recuerdos quedan bajo tu cuenta.</p></div></section></main>`;
 }
-function verifyPage() { return `<main class="login-page"><section class="login-panel"><a class="brand" href="#/home"><span class="brand-mark">N</span><span>Nupcial</span></a><h1>Confirma tu correo</h1><p id="verify-status" role="status" aria-live="polite">Validando enlace…</p><a class="btn" href="#/login">Ir a iniciar sesión</a></section></main>`; }
+function verifyPage() { return `<main class="login-page"><section class="login-panel"><a class="brand" href="#/home"><span class="brand-mark">N</span><span>Nupcial</span></a><h1>Confirma tu correo</h1><p class="subtitle">Elige ahora la contraseña de tu cuenta. Así un registro iniciado por otra persona no puede apropiarse de tu correo.</p><form id="verify-form" class="grid"><label class="field">Nueva contraseña<input class="input" name="password" type="password" minlength="12" maxlength="128" required autocomplete="new-password"></label><label class="field">Repite la contraseña<input class="input" name="confirm" type="password" minlength="12" maxlength="128" required autocomplete="new-password"></label><p id="verify-status" role="status" aria-live="polite"></p><button class="btn">Confirmar correo y contraseña</button></form><nav class="auth-links"><a href="#/login">Ir a iniciar sesión</a></nav></section></main>`; }
 function forgotPasswordPage() { return `<main class="login-page"><section class="login-panel"><a class="brand" href="#/home"><span class="brand-mark">N</span><span>Nupcial</span></a><h1>Recuperar acceso</h1><p class="subtitle">Si existe una cuenta activa, enviaremos un enlace temporal.</p><form id="forgot-form" class="grid"><label class="field">Correo electrónico<input class="input" name="email" type="email" required autocomplete="email"></label><p id="forgot-status" role="status" aria-live="polite"></p><button class="btn">Enviar instrucciones</button></form><nav class="auth-links"><a href="#/login">Volver a iniciar sesión</a></nav></section></main>`; }
 function resetPasswordPage() { return `<main class="login-page"><section class="login-panel"><a class="brand" href="#/home"><span class="brand-mark">N</span><span>Nupcial</span></a><h1>Elige una clave nueva</h1><form id="reset-form" class="grid"><label class="field">Nueva contraseña<input class="input" name="password" type="password" minlength="12" maxlength="128" required autocomplete="new-password"></label><label class="field">Repite la contraseña<input class="input" name="confirm" type="password" minlength="12" maxlength="128" required autocomplete="new-password"></label><p id="reset-status" role="status" aria-live="polite"></p><button class="btn">Guardar contraseña</button></form></section></main>`; }
 function eventsPage() {
@@ -553,7 +612,7 @@ function guestsPage() {
 }
 
 function guestRows(list) {
-  return list.length ? list.map(g => {const memberCount=(g.members||[]).length;return `<tr><td><input type="checkbox" data-select-guest="${g.id}" ${selectedGuestIds.has(g.id)?'checked':''} aria-label="Seleccionar ${escapeHtml(g.name)}"></td><td><div class="person"><span class="avatar">${escapeHtml(initials(g.name))}</span><div><strong>${escapeHtml(g.name)}</strong><small style="display:block;color:var(--muted)">${g.type==='individual'?'Individual':'Grupo'} · ${memberCount} nombre${memberCount===1?'':'s'} registrado${memberCount===1?'':'s'}</small></div></div></td><td>${escapeHtml(g.phone || "—")}<small style="display:block;color:var(--muted)">Envío por WhatsApp externo</small></td><td>${Core.attendanceCount(g)} / ${g.passes}</td><td>${statusChip(g.status)}</td><td>${escapeHtml(g.side)}</td><td>${g.table ? escapeHtml(db.tables.find(t=>t.id===g.table)?.name || "—") : "—"}</td><td><div class="row-actions"><button class="btn small secondary" data-manual-rsvp="${g.id}" title="Confirmación manual" aria-label="Registrar respuesta de ${escapeHtml(g.name)}">✓</button><button class="btn small secondary" data-copy-invite="${g.id}" title="Copiar mensaje personalizado" aria-label="Copiar mensaje para ${escapeHtml(g.name)}">⧉</button><button class="btn small secondary" data-copy-link="${g.id}" title="Copiar enlace personalizado" aria-label="Copiar enlace de ${escapeHtml(g.name)}">↗</button><a class="btn small secondary" href="#/public?guest=${encodeURIComponent(g.code)}" title="Ver invitación personalizada" aria-label="Abrir invitación de ${escapeHtml(g.name)}">◉</a><button class="btn small secondary" data-whatsapp="${g.id}" title="Preparar WhatsApp" aria-label="Preparar WhatsApp para ${escapeHtml(g.name)}">◍</button><button class="btn small secondary" data-edit-guest="${g.id}" title="Editar">✎</button><button class="btn danger small" data-delete-guest="${g.id}" title="Eliminar">×</button></div></td></tr>`;}).join("") : '<tr><td colspan="8" class="empty">Sin resultados.</td></tr>';
+  return list.length ? list.map(g => {const memberCount=(g.members||[]).length;return `<tr><td><input type="checkbox" data-select-guest="${g.id}" ${selectedGuestIds.has(g.id)?'checked':''} aria-label="Seleccionar ${escapeHtml(g.name)}"></td><td><div class="person"><span class="avatar">${escapeHtml(initials(g.name))}</span><div><strong>${escapeHtml(g.name)}</strong><small style="display:block;color:var(--muted)">${g.type==='individual'?'Individual':'Grupo'} · ${memberCount} nombre${memberCount===1?'':'s'} registrado${memberCount===1?'':'s'}</small></div></div></td><td>${escapeHtml(g.phone || "—")}<small style="display:block;color:var(--muted)">Envío por WhatsApp externo</small></td><td>${Core.attendanceCount(g)} / ${g.passes}</td><td>${statusChip(g.status)}</td><td>${escapeHtml(g.side)}</td><td>${g.table ? escapeHtml(db.tables.find(t=>t.id===g.table)?.name || "—") : "—"}</td><td><div class="row-actions"><button class="btn small secondary" data-manual-rsvp="${g.id}" title="Confirmación manual" aria-label="Registrar respuesta de ${escapeHtml(g.name)}">✓</button><button class="btn small secondary" data-copy-invite="${g.id}" title="Copiar mensaje personalizado" aria-label="Copiar mensaje para ${escapeHtml(g.name)}">⧉</button><button class="btn small secondary" data-copy-link="${g.id}" title="Copiar enlace personalizado" aria-label="Copiar enlace de ${escapeHtml(g.name)}">↗</button><a class="btn small secondary" href="${escapeHtml(personalizedInviteUrl(g))}" title="Ver invitación personalizada" aria-label="Abrir invitación de ${escapeHtml(g.name)}">◉</a><button class="btn small secondary" data-whatsapp="${g.id}" title="Preparar WhatsApp" aria-label="Preparar WhatsApp para ${escapeHtml(g.name)}">◍</button><button class="btn small secondary" data-edit-guest="${g.id}" title="Editar">✎</button><button class="btn danger small" data-delete-guest="${g.id}" title="Eliminar">×</button></div></td></tr>`;}).join("") : '<tr><td colspan="8" class="empty">Sin resultados.</td></tr>';
 }
 
 function rsvpPage() {
@@ -736,7 +795,7 @@ function galleryPage() {
   return shell(`${pageHead("Recuerdos", "Galería interactiva", "Invitados pueden compartir fotos del evento.", '<button class="btn secondary" data-action="gallery-qr">Código QR</button><button class="btn secondary" data-action="copy-gallery-link">Copiar enlace</button>')}
     <label class="list-row" style="margin-bottom:18px"><span><strong>Habilitar galería</strong><p>Permite cargas desde invitación pública.</p></span><input id="gallery-enabled" type="checkbox" ${db.galleryEnabled?'checked':''}></label>
     <label class="upload-zone" for="gallery-upload"><div><div style="font-size:30px">＋</div><strong>Subir fotos</strong><p>JPG, PNG o WebP · máximo 2 MB por archivo</p></div><input id="gallery-upload" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden></label>
-    <div class="card" style="margin:18px 0"><div style="display:flex;justify-content:space-between;gap:16px;align-items:center"><div><strong>${db.gallery.length} ${db.gallery.length===1?'foto compartida':'fotos compartidas'}</strong><p style="margin:2px 0 0;color:var(--muted)">Demo local · referencia 250; espacio real depende del navegador</p></div><span class="chip">${Math.round(db.gallery.length/250*100)}% de referencia</span></div></div>
+    <div class="card" style="margin:18px 0"><div style="display:flex;justify-content:space-between;gap:16px;align-items:center"><div><strong>${db.gallery.length} ${db.gallery.length===1?'foto compartida':'fotos compartidas'}</strong><p style="margin:2px 0 0;color:var(--muted)">Demo local · límite 200; espacio real depende del navegador</p></div><span class="chip">${Math.round(db.gallery.length/200*100)}% del límite</span></div></div>
     <div class="toolbar gallery-bulk-actions"><label class="list-row photo-select-all"><span><strong>Seleccionar todo</strong></span><input type="checkbox" id="photo-select-all" ${db.gallery.length&&selectedPhotoIds.size===db.gallery.length?'checked':''}></label><span id="photo-selection-count" class="note">${selectedPhotoIds.size} seleccionadas</span><button class="btn small secondary" data-action="download-selected-photos" ${selectedPhotoIds.size?'':'disabled'}>Descargar ZIP</button><button class="btn small danger" data-action="delete-selected-photos" ${selectedPhotoIds.size?'':'disabled'}>Eliminar selección</button></div>
     <section class="gallery-grid">${db.gallery.map(p=>`<figure class="photo ${selectedPhotoIds.has(p.id)?'selected':''}"><img src="${p.src}" alt="Foto compartida por ${escapeHtml(p.by)}"><label class="photo-check"><input type="checkbox" data-select-photo="${p.id}" ${selectedPhotoIds.has(p.id)?'checked':''} aria-label="Seleccionar foto"></label><button class="btn danger small" data-delete-photo="${p.id}">Eliminar</button></figure>`).join("") || '<div class="empty card">Aún no hay fotos.</div>'}</section>`, "Galería");
 }
@@ -744,7 +803,7 @@ function galleryPage() {
 function settingsPage() {
   const size = new Blob([JSON.stringify(db)]).size;
   return shell(`${pageHead("Sistema", "Configuración", "Respaldo y portabilidad de datos.")}
-    <section class="card settings-list"><div class="setting-row"><div><strong>Exportar respaldo</strong><p>Descarga evento, invitados, mesas, canciones y ajustes.</p></div><button class="btn secondary" data-action="export-backup">Descargar JSON</button></div><div class="setting-row"><div><strong>Importar respaldo</strong><p>Restaura un archivo generado por Nupcial.</p></div><label class="btn secondary" for="backup-import">Seleccionar JSON<input id="backup-import" type="file" accept="application/json,.json" hidden></label></div><div class="setting-row"><div><strong>${apiMode?'Estado del servidor':'Uso local'}</strong><p>${apiMode?`${Math.round(size/1024)} KB en la copia del navegador; el servidor es la fuente compartida.`:`${Math.round(size/1024)} KB almacenados en este navegador.`}</p></div><span class="chip">${apiMode?'API · '+(paymentMode==='mock'?'pago simulado':'billing externo'):'localStorage'}</span></div><div class="setting-row"><div><strong>Reiniciar demo</strong><p>Elimina cambios locales y recupera datos iniciales.</p></div><button class="btn danger" data-action="reset-demo">Restablecer</button></div></section>`, "Configuración");
+    <section class="card settings-list"><div class="setting-row"><div><strong>Exportar respaldo</strong><p>Descarga evento, invitados, mesas, canciones y ajustes.</p></div><button class="btn secondary" data-action="export-backup">Descargar JSON</button></div><div class="setting-row"><div><strong>Importar respaldo</strong><p>Restaura un archivo generado por Nupcial.</p></div><label class="btn secondary" for="backup-import">Seleccionar JSON<input id="backup-import" type="file" accept="application/json,.json" hidden></label></div><div class="setting-row"><div><strong>${apiMode?'Estado del servidor':'Uso local'}</strong><p>${apiMode?`${Math.round(size/1024)} KB en la copia del navegador; el servidor es la fuente compartida.`:`${Math.round(size/1024)} KB almacenados en este navegador.`}</p></div><span class="chip">${apiMode?'API · '+(paymentMode==='mock'?'pago simulado':'billing externo'):'localStorage'}</span></div>${tenantMode?'':`<div class="setting-row"><div><strong>Reiniciar demo</strong><p>Elimina cambios locales y recupera datos iniciales.</p></div><button class="btn danger" data-action="reset-demo">Restablecer</button></div>`}</section>`, "Configuración");
 }
 
 function publicPage() {
@@ -844,15 +903,17 @@ function bindPage(current) {
   document.querySelector('#register-form')?.addEventListener('submit', async e=>{
     e.preventDefault();const data=new FormData(e.currentTarget),status=document.querySelector('#register-status');
     if(!apiMode){status.textContent='Activa el servidor con npm start para crear cuentas.';return;}
-    if(data.get('password')!==data.get('confirm')){status.textContent='Las contraseñas no coinciden.';return;}
-    try{const result=await apiRequest('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:data.get('email'),password:data.get('password')})});status.innerHTML=`${escapeHtml(result.message)} ${result.verificationUrl?`<a href="${escapeHtml(result.verificationUrl)}">Confirmar correo (enlace local)</a>`:''}`;}
+    try{const result=await apiRequest('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:data.get('email')})});status.innerHTML=`${escapeHtml(result.message)} ${result.verificationUrl?`<a href="${escapeHtml(result.verificationUrl)}">Confirmar correo (enlace local)</a>`:''}`;}
     catch(error){status.textContent=error.message;}
   });
-  if(current==='verify'){
-    const status=document.querySelector('#verify-status'),token=hashParams().get('token')||'';
-    if(!apiMode){status.textContent='Activa el servidor para validar este enlace.';}
-    else apiRequest('/api/auth/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})}).then(result=>{status.textContent=`Correo confirmado para ${result.email}. Ya puedes iniciar sesión.`;}).catch(error=>{status.textContent=error.message;});
-  }
+  document.querySelector('#verify-form')?.addEventListener('submit',async e=>{
+    e.preventDefault();const data=new FormData(e.currentTarget),status=document.querySelector('#verify-status'),token=hashParams().get('token')||'';
+    if(!apiMode){status.textContent='Activa el servidor para validar este enlace.';return;}
+    if(!token){status.textContent='El enlace de verificación está incompleto.';return;}
+    if(data.get('password')!==data.get('confirm')){status.textContent='Las contraseñas no coinciden.';return;}
+    try{const result=await apiRequest('/api/auth/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,password:data.get('password')})});status.textContent=`Correo confirmado para ${result.email}. Ya puedes iniciar sesión.`;e.currentTarget.querySelector('button').disabled=true;}
+    catch(error){status.textContent=error.message;}
+  });
   document.querySelector('#forgot-form')?.addEventListener('submit',async e=>{
     e.preventDefault();const status=document.querySelector('#forgot-status');
     try{const result=await apiRequest('/api/auth/password-reset/request',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:new FormData(e.currentTarget).get('email')})});status.innerHTML=`${escapeHtml(result.message)} ${result.resetUrl?`<a href="${escapeHtml(result.resetUrl)}">Restablecer (enlace local)</a>`:''}`;}
@@ -954,6 +1015,12 @@ function bindPage(current) {
     try {
       if(file.size>20*1024*1024)throw new Error("El respaldo supera 20 MB.");
       const candidate=normalizeDB(Core.validateBackup(JSON.parse(await file.text())));
+      if(tenantMode){
+        for(const field of ['id','slug','status','plan','planStatus','lastPaymentId']){
+          if(Object.hasOwn(db.event,field))candidate.event[field]=db.event[field];
+          else delete candidate.event[field];
+        }
+      }
       if(!confirm("¿Restaurar este respaldo? Reemplazará los datos actuales del evento."))return;
       db=candidate;if(saveDB("Respaldo restaurado"))render();
     }catch(error){toast(error instanceof SyntaxError?"Archivo JSON inválido.":error.message);}
@@ -1025,7 +1092,7 @@ document.addEventListener("click", async e => {
   if(el.dataset.floorSelect){const id=Number(el.dataset.floorSelect);if(!db.tables.some(table=>table.id===id))return;if(el.dataset.floorOpenPlan){floorView="plan";floorCleanMode=false;}if(floorMultiSelect){if(floorSelectedTables.has(id))floorSelectedTables.delete(id);else floorSelectedTables.add(id);}else floorSelectedTables=new Set([id]);render();return;}
   if(el.dataset.unassignGuest){const guest=db.guests.find(item=>item.id===Number(el.dataset.unassignGuest));if(guest){guest.table=null;if(saveDB("Invitado liberado de la mesa"))render();}return;}
   if(el.dataset.action === "theme") { const root=document.querySelector(".app-shell"); const next=root.dataset.theme === "dark" ? "light" : "dark"; localStorage.setItem("nupcial-theme",next); root.dataset.theme=next; }
-  if(el.dataset.action === "logout") { const hadTenant=tenantMode;try { if(apiMode) await apiRequest("/api/auth/logout",{method:"POST"}); } finally { sessionStorage.removeItem(AUTH_KEY); remotePublic=false;tenantMode=false;tenantEvents=[];currentAccountEmail='';if(hadTenant){db=emptyTenantState();savedDBSnapshot=JSON.stringify(db);}go("login"); } }
+  if(el.dataset.action === "logout") { const hadTenant=tenantMode;try { if(apiMode) await apiRequest("/api/auth/logout",{method:"POST"}); } finally { sessionStorage.removeItem(AUTH_KEY); remotePublic=false;publicContextActive=false;tenantMode=false;tenantEvents=[];currentAccountEmail='';if(hadTenant){db=emptyTenantState();savedDBSnapshot=JSON.stringify(db);}go("login"); } }
   if(el.dataset.action === "mobile-menu") { mobileOpen=!mobileOpen; document.querySelector(".sidebar")?.classList.toggle("open",mobileOpen); }
   if(el.dataset.action === "new-guest") { modal={type:"guest"}; render(); }
   if(el.dataset.action === "open-import") { pendingImport=[]; modal={type:"import"}; render(); }
@@ -1053,7 +1120,10 @@ document.addEventListener("click", async e => {
   if(el.dataset.action === "scroll-rsvp") document.querySelector("#rsvp-public")?.scrollIntoView({behavior:"smooth"});
   if(el.dataset.action === "add-moment" && db.itinerary.length<10) { db.itinerary.push({id:Date.now(),time:"20:00",icon:"✨",title:"Nuevo momento",description:""}); saveDB("Momento agregado"); render(); }
   if(el.dataset.action === "remove-cover") { delete db.event.coverPhoto; saveDB("Portada eliminada"); render(); }
-  if(el.dataset.action === "reset-demo" && confirm("Esto eliminará todos los cambios locales. ¿Continuar?")) { db=normalizeDB(structuredClone(seed)); saveDB("Demo restablecida"); render(); }
+  if(el.dataset.action === "reset-demo") {
+    if(tenantMode){toast("Reiniciar demo no está disponible dentro de una cuenta privada.");return;}
+    if(confirm("Esto eliminará todos los cambios locales. ¿Continuar?")){db=normalizeDB(structuredClone(seed));saveDB("Demo restablecida");render();}
+  }
   if(el.dataset.editGuest) { modal={type:"guest",id:Number(el.dataset.editGuest)}; render(); }
   if(el.dataset.manualRsvp) { modal={type:"manual",id:Number(el.dataset.manualRsvp)}; render(); }
   if(el.dataset.copyInvite) { const g=db.guests.find(x=>x.id===Number(el.dataset.copyInvite)); if(g)await copyText(invitationMessage(g),"Mensaje copiado"); }
@@ -1317,8 +1387,18 @@ async function addGalleryFiles(files,by){
 }
 
 window.addEventListener("hashchange",async()=>{
+  const epoch=++navigationEpoch;
+  const isCurrent=()=>epoch===navigationEpoch;
   modal=null;
-  if(apiMode && route()==="public" && !isAuthed()) await loadRemotePublic();
+  const current=route();
+  if(current!=="public"&&publicContextActive)clearPublicEventQuery();
+  if(apiMode&&current==="public"&&(!isAuthed()||publicEventSlug()))await loadRemotePublic(isCurrent);
+  else if(apiMode&&current!=="public"&&isAuthed()&&publicContextActive){
+    try{await restoreAuthenticatedWorkspace(isCurrent);}
+    catch{startupError="No pudimos recuperar tu espacio privado. Recarga cuando el servicio vuelva a estar disponible.";}
+  }
+  else if(current!=="public"&&isCurrent()){remotePublic=false;publicContextActive=false;publicLoadError="";}
+  if(!isCurrent())return;
   render();
   if(route()==="checkout") refreshCheckoutPage();
   if(route()==="payment-result") refreshPaymentResult();

@@ -1,24 +1,24 @@
 flowchart LR
   entry["Invitados — UI OBSERVADA"]
-  add["Crear grupo / persona — UI OBSERVADA"]
-  kind["Tipo de invitación — UI OBSERVADA"]
+  add["Crear invitado — UI OBSERVADA"]
+  fields["Datos del grupo — UI OBSERVADA"]
   limit["Pases por grupo — UI OBSERVADA"]
-  import["Subir archivo — UI OBSERVADA"]
+  import["Importar lista — UI OBSERVADA"]
   preview["Vista previa — UI OBSERVADA"]
-  phone["País y teléfono — UI OBSERVADA"]
-  store["Guardar lista — PENDIENTE"]
+  phone["Contacto y lado — UI OBSERVADA"]
+  commit["Confirmar importación — PENDIENTE"]
   filter["Buscar / filtrar — UI OBSERVADA"]
-  columns["Columnas / páginas — UI OBSERVADA"]
-  actions["Acciones de grupo — UI OBSERVADA"]
-  manual["Respuesta manual — UI OBSERVADA"]
+  actions["Acciones del grupo — UI OBSERVADA"]
+  manual["Confirmación manual — UI OBSERVADA"]
+  attendees["Personas confirmadas — UI OBSERVADA"]
   entry --> add
-  add --> kind
-  kind --> limit
+  add --> fields
+  fields --> limit
   entry -->|"Carga masiva"| import
   import --> preview
   preview --> phone
-  phone -.-> store
-  store --> filter
-  filter --> columns
-  columns --> actions
+  phone -.-> commit
+  entry -->|"Gestionar"| filter
+  filter --> actions
   actions --> manual
+  manual -->|"Sí asistirá"| attendees

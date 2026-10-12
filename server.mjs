@@ -1,7 +1,7 @@
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createHash, createHmac, randomBytes, scryptSync, timingSafeEqual, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomBytes, scrypt, scryptSync, timingSafeEqual, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { createPaymentProvider, PAYMENT_PLANS, PaymentError, safeEqualText } from './server/payments.mjs';
 
@@ -15,6 +15,14 @@ const MIME = {
   '.json': 'application/json; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
   '.png': 'image/png', '.svg': 'image/svg+xml', '.webp': 'image/webp',
 };
+const PUBLIC_FILES = new Map([
+  ['/', 'index.html'], ['/index.html', 'index.html'],
+  ['/styles.css', 'styles.css'], ['/marketing.css', 'marketing.css'], ['/experience.css', 'experience.css'], ['/floor-payment.css', 'floor-payment.css'],
+  ['/core.js', 'core.js'], ['/experience.js', 'experience.js'], ['/marketing.js', 'marketing.js'], ['/app.js', 'app.js'],
+  ['/docs/system-map.html', 'docs/system-map.html'], ['/docs/system-map.css', 'docs/system-map.css'], ['/docs/system-map.js', 'docs/system-map.js'],
+  ['/docs/database.md', 'docs/database.md'], ['/docs/architecture.md', 'docs/architecture.md'], ['/docs/client-audit.md', 'docs/client-audit.md'],
+  ['/docs/reference-festejabonito-client-seating.md', 'docs/reference-festejabonito-client-seating.md'],
+]);
 
 export class FileStore {
   constructor(filePath) { this.filePath = filePath; this.data = { state: null, payments: {}, sessions: {}, version: 0, accounts: {}, authTokens: {}, events: {}, rateLimits: {} }; }
@@ -77,16 +85,27 @@ export class FileStore {
   }
   async getAccountByEmail(email) { return structuredClone(Object.values(this.data.accounts).find(item => item.email === email) || null); }
   async putAuthToken(token) {
-    for(const [key,value] of Object.entries(this.data.authTokens))if(value.accountId===token.accountId&&value.kind===token.kind)delete this.data.authTokens[key];
+    const now=Date.now();
+    for(const [key,value] of Object.entries(this.data.authTokens))if(value.expiresAt<=now||value.consumedAt)delete this.data.authTokens[key];
     this.data.authTokens[token.hash] = structuredClone(token); await this.flush();
   }
-  async consumeAuthToken(hash, kind, now = Date.now()) {
+  async getAuthTokenAccount(hash, kind, now = Date.now()) {
+    const token=this.data.authTokens[hash],account=token&&this.data.accounts[token.accountId];
+    if(!token||token.kind!==kind||token.expiresAt<=now||token.consumedAt||!account)return null;
+    if(kind==='verify'&&account.status!=='pending_verification')return null;
+    if(kind==='reset'&&account.status!=='active')return null;
+    return {id:account.id,email:account.email,status:account.status};
+  }
+  async consumeAuthToken(hash, kind, passwordHash, now = Date.now()) {
     const token = this.data.authTokens[hash];
     if (!token || token.kind !== kind || token.expiresAt <= now || token.consumedAt) return null;
-    token.consumedAt = now;
     const account = this.data.accounts[token.accountId];
-    if (!account) return null;
-    if (kind === 'verify') { account.status = 'active'; account.emailVerifiedAt = now; for(const item of Object.values(this.data.authTokens))if(item.accountId===account.id&&item.kind==='verify')item.consumedAt=now; }
+    if (!account || (kind === 'verify' && account.status !== 'pending_verification')) return null;
+    token.consumedAt = now;
+    if (kind === 'verify') {
+      account.status = 'active'; account.emailVerifiedAt = now; account.passwordHash = passwordHash;
+      for(const item of Object.values(this.data.authTokens))if(item.accountId===account.id&&item.kind==='verify')item.consumedAt=now;
+    }
     await this.flush();
     return structuredClone(account);
   }
@@ -95,7 +114,8 @@ export class FileStore {
     if (!token || token.kind !== 'reset' || token.expiresAt <= now || token.consumedAt) return false;
     const account = this.data.accounts[token.accountId];
     if (!account || account.status !== 'active') return false;
-    token.consumedAt = now; account.passwordHash = passwordHash;
+    account.passwordHash = passwordHash;
+    for(const item of Object.values(this.data.authTokens))if(item.accountId===account.id&&item.kind==='reset')item.consumedAt=now;
     for (const [id, session] of Object.entries(this.data.sessions)) if (session.accountId === account.id) delete this.data.sessions[id];
     await this.flush(); return true;
   }
@@ -104,7 +124,7 @@ export class FileStore {
     await this.flush();
   }
   async createEvent(accountId, event) {
-    const record = { ...structuredClone(event), accountId, revision: 1, createdAt: new Date().toISOString() };
+    const record = { ...structuredClone(event), status: event.status || 'draft', accountId, revision: 1, createdAt: new Date().toISOString() };
     this.data.events[event.id] = record; await this.flush(); return structuredClone(record);
   }
   async listEvents(accountId) {
@@ -253,10 +273,14 @@ export class PostgresStore {
   }
   async putAuthToken(token) {
     const table = token.kind === 'verify' ? 'email_verification_tokens' : 'password_reset_tokens';
-    await this.pool.query(`DELETE FROM ${table} WHERE account_id=$1 AND consumed_at IS NULL`, [token.accountId]);
     await this.pool.query(`INSERT INTO ${table}(id,account_id,token_hash,expires_at) VALUES ($1,$2,$3,to_timestamp($4))`, [randomUUID(), token.accountId, token.hash, token.expiresAt / 1000]);
   }
-  async consumeAuthToken(hash, kind) {
+  async getAuthTokenAccount(hash, kind) {
+    const table=kind==='verify'?'email_verification_tokens':'password_reset_tokens',status=kind==='verify'?'pending_verification':'active';
+    const result=await this.pool.query(`SELECT a.id,a.email,a.status FROM ${table} t JOIN accounts a ON a.id=t.account_id WHERE t.token_hash=$1 AND t.consumed_at IS NULL AND t.expires_at>now() AND a.status=$2 AND a.deleted_at IS NULL`,[hash,status]);
+    return result.rows[0]||null;
+  }
+  async consumeAuthToken(hash, kind, passwordHash) {
     const table = kind === 'verify' ? 'email_verification_tokens' : 'password_reset_tokens';
     const client = await this.pool.connect();
     try {
@@ -265,7 +289,8 @@ export class PostgresStore {
       if (!token.rowCount) { await client.query('ROLLBACK'); return null; }
       const accountId = token.rows[0].account_id;
       if (kind === 'verify') {
-        await client.query("UPDATE accounts SET status='active',email_verified_at=now(),updated_at=now() WHERE id=$1 AND status='pending_verification'", [accountId]);
+        const changed=await client.query("UPDATE accounts SET status='active',password_hash=$2,email_verified_at=now(),updated_at=now() WHERE id=$1 AND status='pending_verification' RETURNING id", [accountId, passwordHash]);
+        if(!changed.rowCount){await client.query('ROLLBACK');return null;}
         await client.query('UPDATE email_verification_tokens SET consumed_at=now() WHERE account_id=$1 AND consumed_at IS NULL', [accountId]);
       } else await client.query(`UPDATE ${table} SET consumed_at=now() WHERE id=$1`, [token.rows[0].id]);
       const account = await client.query('SELECT id,email,password_hash AS "passwordHash",status FROM accounts WHERE id=$1', [accountId]);
@@ -281,7 +306,7 @@ export class PostgresStore {
       const accountId = token.rows[0].account_id;
       const changed = await client.query("UPDATE accounts SET password_hash=$2,updated_at=now() WHERE id=$1 AND status='active'", [accountId, passwordHash]);
       if (!changed.rowCount) { await client.query('ROLLBACK'); return false; }
-      await client.query('UPDATE password_reset_tokens SET consumed_at=now() WHERE id=$1', [token.rows[0].id]);
+      await client.query('UPDATE password_reset_tokens SET consumed_at=now() WHERE account_id=$1 AND consumed_at IS NULL', [accountId]);
       await client.query('UPDATE account_sessions SET revoked_at=now() WHERE account_id=$1 AND revoked_at IS NULL', [accountId]);
       await client.query('COMMIT'); return true;
     } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
@@ -411,6 +436,7 @@ export class PostgresStore {
 function configFrom(env) {
   const production = env.NODE_ENV === 'production';
   const provider = env.PAYMENT_PROVIDER || (production ? 'external' : 'mock');
+  const allowMockPayments = env.ALLOW_MOCK_PAYMENTS === 'true';
   if (!['mock', 'external'].includes(provider)) throw new Error('PAYMENT_PROVIDER debe ser mock o external.');
   if (production) {
     for (const name of ['SESSION_SECRET', 'APP_URL', 'DATABASE_URL', 'EMAIL_API_URL', 'EMAIL_API_KEY', 'EMAIL_FROM']) {
@@ -420,11 +446,12 @@ function configFrom(env) {
     if (!env.APP_URL.startsWith('https://')) throw new Error('APP_URL de producción debe usar HTTPS.');
     try { if (new URL(env.EMAIL_API_URL).protocol !== 'https:') throw new Error(); } catch { throw new Error('EMAIL_API_URL de producción debe ser HTTPS.'); }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(env.EMAIL_FROM)) throw new Error('EMAIL_FROM no parece un correo válido.');
-    if (provider === 'mock') throw new Error('No se permite PAYMENT_PROVIDER=mock en producción.');
+    if (provider === 'mock' && !allowMockPayments) throw new Error('No se permite PAYMENT_PROVIDER=mock en producción sin ALLOW_MOCK_PAYMENTS=true.');
   }
   return {
     production,
     provider,
+    mockPaymentsEnabled: provider === 'mock' && (!production || allowMockPayments),
     legacyAuthEnabled: !production,
     appEmail: (env.APP_EMAIL || 'demo@boda.local').trim().toLowerCase(),
     appPassword: env.APP_PASSWORD || 'demo123',
@@ -439,8 +466,9 @@ function configFrom(env) {
 }
 
 function tokenDigest(token) { return createHash('sha256').update(token).digest('hex'); }
-function hashPassword(password) {
-  const salt = randomBytes(16), key = scryptSync(password, salt, 64);
+async function hashPasswordAsync(password) {
+  const salt=randomBytes(16);
+  const key=await new Promise((resolve,reject)=>scrypt(password,salt,64,(error,derived)=>error?reject(error):resolve(derived)));
   return `scrypt$${salt.toString('base64url')}$${key.toString('base64url')}`;
 }
 function verifyPassword(password, encoded) {
@@ -526,11 +554,44 @@ export async function createApp({ env = process.env, store: suppliedStore } = {}
     const limits={itinerary:100,gifts:100,guests:20000,tables:500,songs:5000,gallery:200,floorObjects:500};
     for(const [key,limit] of Object.entries(limits))if(value[key]!=null&&(!Array.isArray(value[key])||value[key].length>limit))throw new PaymentError(`Lista ${key} supera el límite permitido.`,413);
     const event=value.event;
-    for(const [key,max] of Object.entries({bride:100,groom:100,venue:200,address:300,phrase:1000,dressCode:160,deadline:10,theme:40,palette:40}))if(event[key]!=null&&(typeof event[key]!=='string'||event[key].length>max))throw new PaymentError(`Dato ${key} no válido.`);
+    for(const [key,max] of Object.entries({bride:100,groom:100,venue:200,address:300,phrase:1000,dressCode:160,deadline:10,theme:40,palette:40,plan:40,planStatus:20,lastPaymentId:100}))if(event[key]!=null&&(typeof event[key]!=='string'||event[key].length>max))throw new PaymentError(`Dato ${key} no válido.`);
     if(event.date&& !validIsoDate(event.date))throw new PaymentError('Fecha del evento no válida.');
     if(event.deadline&& !validIsoDate(event.deadline))throw new PaymentError('Fecha límite no válida.');
     if(event.sections!=null&&(!event.sections||typeof event.sections!=='object'||Array.isArray(event.sections)))throw new PaymentError('Secciones no válidas.');
+    const validRecordId = id => (Number.isSafeInteger(id) && id >= 0) || (typeof id === 'string' && /^[a-z\d_-]{1,80}$/i.test(id));
+    for (const guest of value.guests) {
+      if (!guest || typeof guest !== 'object' || Array.isArray(guest) || !validRecordId(guest.id)) throw new PaymentError('Invitado no válido.');
+      if (typeof guest.code !== 'string' || guest.code.length < 4 || guest.code.length > 128 || !/^[a-z\d_-]+$/i.test(guest.code)) throw new PaymentError('Código de invitado no válido.');
+      if (typeof guest.name !== 'string' || !guest.name.trim() || guest.name.length > 120) throw new PaymentError('Nombre de invitado no válido.');
+      if (!Number.isSafeInteger(guest.passes) || guest.passes < 1 || guest.passes > 20) throw new PaymentError('Pases de invitado no válidos.');
+      if (!['pending', 'confirmed', 'declined'].includes(guest.status)) throw new PaymentError('Estado de invitado no válido.');
+      if (guest.confirmedCount != null && (!Number.isSafeInteger(guest.confirmedCount) || guest.confirmedCount < 0 || guest.confirmedCount > guest.passes)) throw new PaymentError('Cantidad confirmada no válida.');
+      if (guest.members != null && (!Array.isArray(guest.members) || guest.members.length > guest.passes || guest.members.some(member => typeof member !== 'string' || member.length > 120))) throw new PaymentError('Acompañantes no válidos.');
+      if (guest.message != null && (typeof guest.message !== 'string' || guest.message.length > 500)) throw new PaymentError('Mensaje de invitado no válido.');
+      if (guest.attendanceType != null && !['full', 'ceremony'].includes(guest.attendanceType)) throw new PaymentError('Tipo de asistencia no válido.');
+      if (guest.responseAt != null && (typeof guest.responseAt !== 'string' || guest.responseAt.length > 40)) throw new PaymentError('Fecha de respuesta no válida.');
+      if (guest.table != null && !validRecordId(guest.table)) throw new PaymentError('Mesa de invitado no válida.');
+    }
     if (JSON.stringify(value).length > BODY_LIMIT) throw new PaymentError('El evento supera el límite de almacenamiento de la demo.', 413);
+  }
+  function protectServerOwnedEventFields(state, record = null, identity = null) {
+    const current = record?.state?.event;
+    if (current) {
+      state.event.plan = Object.hasOwn(PAYMENT_PLANS, current.plan) ? current.plan : 'essential';
+      state.event.planStatus = current.planStatus === 'active' ? 'active' : 'demo';
+      if (typeof current.lastPaymentId === 'string' && current.lastPaymentId) state.event.lastPaymentId = current.lastPaymentId;
+      else delete state.event.lastPaymentId;
+    } else {
+      state.event.plan = Object.hasOwn(PAYMENT_PLANS, state.event.plan) ? state.event.plan : 'essential';
+      state.event.planStatus = 'demo';
+      delete state.event.lastPaymentId;
+    }
+    const canonical = identity || (record?.eventId ? { id: record.eventId, slug: record.slug, status: record.eventStatus } : null);
+    if (canonical) {
+      state.event.id = canonical.id;
+      state.event.slug = canonical.slug;
+      state.event.status = canonical.status;
+    }
   }
   async function recordLoginAttempt(req, email) {
     const fingerprint = tokenDigest(`${req.socket.remoteAddress || 'unknown'}:${email}`);
@@ -591,11 +652,7 @@ export async function createApp({ env = process.env, store: suppliedStore } = {}
     ];
     const event = Object.fromEntries(publicEventFields.filter(key => Object.hasOwn(state.event || {}, key)).map(key => [key, state.event[key]]));
     const guest = code ? (state.guests || []).find(item => item.code === code) : null;
-    const safeGuest = guest ? {
-      id: guest.id, code: guest.code, name: guest.name, passes: guest.passes, status: guest.status,
-      confirmedCount: guest.confirmedCount, members: guest.members, message: guest.message,
-      attendanceType: guest.attendanceType, responseAt: guest.responseAt, table: null,
-    } : null;
+    const safeGuest = safePublicGuest(guest);
     return {
       event,
       itinerary: (state.itinerary || []).map(item => ({ id: item.id, time: item.time, icon: item.icon, title: item.title, description: item.description })),
@@ -608,19 +665,29 @@ export async function createApp({ env = process.env, store: suppliedStore } = {}
   }
   function safePublicGuest(guest) {
     if (!guest) return null;
+    const id = (Number.isSafeInteger(guest.id) && guest.id >= 0) || (typeof guest.id === 'string' && /^[a-z\d_-]{1,80}$/i.test(guest.id)) ? guest.id : '';
+    const passes = Number.isSafeInteger(guest.passes) && guest.passes >= 1 && guest.passes <= 20 ? guest.passes : 1;
+    const confirmedCount = Number.isSafeInteger(guest.confirmedCount) && guest.confirmedCount >= 0 && guest.confirmedCount <= passes ? guest.confirmedCount : 0;
     return {
-      id: guest.id, code: guest.code, name: guest.name, passes: guest.passes, status: guest.status,
-      confirmedCount: guest.confirmedCount, members: guest.members, message: guest.message,
-      attendanceType: guest.attendanceType, responseAt: guest.responseAt, table: null,
+      id, code: typeof guest.code === 'string' ? guest.code.slice(0, 128) : '', name: typeof guest.name === 'string' ? guest.name.slice(0, 120) : '', passes,
+      status: ['pending', 'confirmed', 'declined'].includes(guest.status) ? guest.status : 'pending', confirmedCount,
+      members: Array.isArray(guest.members) ? guest.members.filter(member => typeof member === 'string').slice(0, passes).map(member => member.slice(0, 120)) : [],
+      message: typeof guest.message === 'string' ? guest.message.slice(0, 500) : '',
+      attendanceType: guest.attendanceType === 'ceremony' ? 'ceremony' : 'full', responseAt: typeof guest.responseAt === 'string' ? guest.responseAt.slice(0, 40) : '', table: null,
     };
   }
   async function updatePublicState(mutator, slug = '') {
-    if (slug) return store.updatePublicEvent(slug, mutator);
+    const guardedMutator = async state => {
+      const result = await mutator(state);
+      validateState(state);
+      return result;
+    };
+    if (slug) return store.updatePublicEvent(slug, guardedMutator);
     if (config.production) throw new PaymentError('Indica el evento de esta invitación.', 404);
     const record = await store.getStateRecord();
     const state = record.state;
     if (!state) throw new PaymentError('La invitación todavía no está configurada.', 404);
-    const result = await mutator(state);
+    const result = await guardedMutator(state);
     await store.setState(state, record.version);
     return result;
   }
@@ -629,6 +696,7 @@ export async function createApp({ env = process.env, store: suppliedStore } = {}
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https://api.qrserver.com; media-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
     const url = new URL(req.url, 'http://localhost');
     try {
       if (url.pathname.startsWith('/api/') && !originAllowed(req)) {
@@ -639,31 +707,36 @@ export async function createApp({ env = process.env, store: suppliedStore } = {}
         await store.ping();
         json(res, 200, { status: 'ready', storage: store instanceof PostgresStore ? 'postgres' : 'local-file', payments: provider.mode }); return;
       }
-      if (req.method === 'GET' && url.pathname === '/api/config') { json(res, 200, { paymentMode: provider.mode, demo: !config.production, registrationEnabled: true }); return; }
+      if (req.method === 'GET' && url.pathname === '/api/config') { json(res, 200, { paymentMode: provider.mode, demo: !config.production, demoPayments: config.mockPaymentsEnabled, registrationEnabled: true }); return; }
 
       if (req.method === 'GET' && url.pathname === '/api/auth/session') {
         const session = await sessionFor(req);
         json(res, 200, { authenticated: Boolean(session), email: session?.email || null, accountId: session?.accountId || null, activeEventId: session?.activeEventId || null, legacy: Boolean(session?.legacy) }); return;
       }
       if (req.method === 'POST' && url.pathname === '/api/auth/register') {
-        const input = await body(req, 32 * 1024), email = String(input.email || '').trim().toLowerCase(), password = input.password;
+        const input = await body(req, 32 * 1024), email = String(input.email || '').trim().toLowerCase();
         const fingerprint = tokenDigest(req.socket.remoteAddress || 'unknown');
         if (!await store.consumeRateLimit('register', fingerprint, 5, 60 * 60_000)) { json(res, 429, { error: 'Demasiados intentos. Espera antes de volver a probar.' }); return; }
-        if (!validEmail(email) || !validPassword(password)) throw new PaymentError('Ingresa un correo válido y contraseña de 12 a 128 caracteres.');
+        if (!validEmail(email)) throw new PaymentError('Ingresa un correo válido.');
         let account = await store.getAccountByEmail(email), verificationUrl = null;
-        if (!account) {
-          account = { id: randomUUID(), email, passwordHash: hashPassword(password), status: 'pending_verification', createdAt: Date.now() };
-          await store.createAccount(account);
-          verificationUrl = await authToken(account, 'verify', 24 * 60 * 60_000, req);
-        } else if (account.status === 'pending_verification') {
-          verificationUrl = await authToken(account, 'verify', 24 * 60 * 60_000, req);
+        if(await store.consumeRateLimit('register-email',tokenDigest(email),3,60*60_000)){
+          if (!account) {
+            account = { id: randomUUID(), email, passwordHash: `pending$${randomBytes(32).toString('base64url')}`, status: 'pending_verification', createdAt: Date.now() };
+            await store.createAccount(account);
+            verificationUrl = await authToken(account, 'verify', 24 * 60 * 60_000, req);
+          } else if (account.status === 'pending_verification') {
+            verificationUrl = await authToken(account, 'verify', 24 * 60 * 60_000, req);
+          }
         }
         json(res, 202, { accepted: true, message: 'Si el correo puede registrarse, recibirás instrucciones para confirmarlo.', ...(verificationUrl ? { verificationUrl } : {}) }); return;
       }
       if (req.method === 'POST' && url.pathname === '/api/auth/verify') {
-        const input = await body(req, 32 * 1024), token = String(input.token || '');
-        if (token.length < 32 || token.length > 128) throw new PaymentError('Enlace de verificación inválido o vencido.', 400);
-        const account = await store.consumeAuthToken(tokenDigest(token), 'verify');
+        const input = await body(req, 32 * 1024), token = String(input.token || ''), password = input.password;
+        if (token.length < 32 || token.length > 128 || !validPassword(password)) throw new PaymentError('Enlace inválido o contraseña no válida. Usa al menos 12 caracteres.', 400);
+        if(!await store.consumeRateLimit('verify',tokenDigest(req.socket.remoteAddress||'unknown'),10,15*60_000)){json(res,429,{error:'Demasiados intentos. Espera antes de volver a probar.'});return;}
+        const digest=tokenDigest(token);
+        if(!await store.getAuthTokenAccount(digest,'verify'))throw new PaymentError('Enlace de verificación inválido o vencido.',400);
+        const account = await store.consumeAuthToken(digest, 'verify', await hashPasswordAsync(password));
         if (!account || account.status !== 'active') throw new PaymentError('Enlace de verificación inválido o vencido.', 400);
         json(res, 200, { verified: true, email: account.email }); return;
       }
@@ -681,7 +754,10 @@ export async function createApp({ env = process.env, store: suppliedStore } = {}
       if (req.method === 'POST' && url.pathname === '/api/auth/password-reset/confirm') {
         const input = await body(req, 32 * 1024), token = String(input.token || ''), password = input.password;
         if (token.length < 32 || token.length > 128 || !validPassword(password)) throw new PaymentError('Enlace inválido o contraseña no válida. Usa al menos 12 caracteres.');
-        if (!await store.resetAccountPassword(tokenDigest(token), hashPassword(password))) throw new PaymentError('Enlace de restablecimiento inválido o vencido.', 400);
+        if(!await store.consumeRateLimit('password-reset-confirm',tokenDigest(req.socket.remoteAddress||'unknown'),10,15*60_000)){json(res,429,{error:'Demasiados intentos. Espera antes de volver a probar.'});return;}
+        const digest=tokenDigest(token);
+        if(!await store.getAuthTokenAccount(digest,'reset'))throw new PaymentError('Enlace de restablecimiento inválido o vencido.',400);
+        if (!await store.resetAccountPassword(digest, await hashPasswordAsync(password))) throw new PaymentError('Enlace de restablecimiento inválido o vencido.', 400);
         json(res, 200, { reset: true }); return;
       }
       if (req.method === 'POST' && url.pathname === '/api/auth/login') {
@@ -721,6 +797,8 @@ export async function createApp({ env = process.env, store: suppliedStore } = {}
         const input = await body(req);
         validateState(input.state);
         if (!Number.isSafeInteger(input.version) || input.version < 0) throw new PaymentError('Versión de datos no válida.');
+        const current = await store.getStateForSession(session);
+        protectServerOwnedEventFields(input.state, current);
         const version = await store.setStateForSession(session, input.state, input.version);
         json(res, 200, { saved: true, version, updatedAt: new Date().toISOString() }); return;
       }
@@ -734,7 +812,7 @@ export async function createApp({ env = process.env, store: suppliedStore } = {}
         if (session.legacy) throw new PaymentError('Crea cuenta para administrar celebraciones separadas.', 403);
         const input = await body(req); validateState(input.state);
         const id = randomUUID(), slug = `boda-${randomBytes(12).toString('hex')}`;
-        input.state.event.slug = slug;
+        protectServerOwnedEventFields(input.state, null, { id, slug, status: 'draft' });
         const event = await store.createEvent(session.accountId, { id, slug, state: input.state });
         if (!await store.setSessionEvent(session.sid, session.accountId, id)) throw new PaymentError('No se pudo activar la celebración.', 500);
         json(res, 201, { event: { id, slug, title: [input.state.event.bride, input.state.event.groom].filter(Boolean).join(' & ') || 'Nueva celebración', status: 'draft', role: 'owner', revision: event.revision } }); return;
@@ -857,7 +935,7 @@ export async function createApp({ env = process.env, store: suppliedStore } = {}
         json(res, 200, { payment: publicPayment(await store.getPaymentForSession(id, session)) }); return;
       }
       if (req.method === 'POST' && /^\/api\/payments\/[0-9a-f-]{36}\/demo-result$/i.test(url.pathname)) {
-        if (config.production || provider.mode !== 'mock') { json(res, 404, { error: 'No encontrado.' }); return; }
+        if (!config.mockPaymentsEnabled) { json(res, 404, { error: 'No encontrado.' }); return; }
         const session = await requireSession(req, res); if (!session) return;
         const id = url.pathname.split('/').at(-2);
         if (!await store.getPaymentForSession(id, session)) throw new PaymentError('Pago no encontrado.', 404);
@@ -872,10 +950,10 @@ export async function createApp({ env = process.env, store: suppliedStore } = {}
 
       let pathname;
       try { pathname = decodeURIComponent(url.pathname); } catch { json(res, 400, { error: 'Ruta no válida.' }); return; }
-      const candidate = path.resolve(ROOT, `.${pathname}`);
-      if (candidate !== ROOT && !candidate.startsWith(`${ROOT}${path.sep}`)) { json(res, 400, { error: 'Ruta no válida.' }); return; }
-      let target = candidate;
-      if (!path.extname(pathname) || pathname.endsWith('/')) target = path.join(ROOT, 'index.html');
+      let relative = PUBLIC_FILES.get(pathname);
+      if (!relative && /^\/assets\/[a-z0-9][a-z0-9._-]*\.(?:png|jpe?g|webp|svg)$/i.test(pathname)) relative = pathname.slice(1);
+      if (!relative) { json(res, 404, { error: 'Archivo no encontrado.' }); return; }
+      const target = path.join(ROOT, relative);
       let content;
       try { content = await readFile(target); }
       catch (error) { if (error.code === 'ENOENT') { json(res, 404, { error: 'Archivo no encontrado.' }); return; } throw error; }
@@ -889,7 +967,13 @@ export async function createApp({ env = process.env, store: suppliedStore } = {}
       if (!res.headersSent) {
         let current = {};
         if (status === 409 && url.pathname === '/api/state') {
-          try { const record = await store.getStateRecord(); current = { version: record.version }; } catch { /* Keep the original conflict response. */ }
+          try {
+            const session = await sessionFor(req);
+            if (session) {
+              const record = await store.getStateForSession(session);
+              current = { version: record.version };
+            }
+          } catch { /* Keep the original conflict response. */ }
         }
         json(res, status, { error: status === 500 ? 'Error interno. Revisa el registro del servidor.' : error.message, ...current });
       }

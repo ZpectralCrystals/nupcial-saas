@@ -1,0 +1,36 @@
+flowchart LR
+  read["GET /api/state"]
+  edit["Editar en panel"]
+  write["PUT /api/state"]
+  compare{"¿Revisión coincide?"}
+  commit[("Commit atómico")]
+  ok["200 + nueva revisión"]
+  conflict["409 + revisión activa"]
+  reload["Recargar / reconciliar — PENDIENTE"]
+  export["Exportar respaldo"]
+  file[("Archivo local")]
+  import["Seleccionar JSON"]
+  validateBackup{"Validar estructura"}
+  identity["Preservar identidad"]
+  confirmRestore{"Confirmar reemplazo"}
+  restore[("Guardar restauración")]
+  resetDemo["Restablecer seed"]
+  tenantBlock["Bloquear reset tenant"]
+  read --> edit
+  edit --> write
+  write --> compare
+  compare -->|"Sí"| commit
+  commit --> ok
+  compare -->|"No"| conflict
+  conflict -.-> reload
+  reload -.-> read
+  edit --> export
+  export --> file
+  file --> import
+  import --> validateBackup
+  validateBackup -->|"Válido"| identity
+  identity --> confirmRestore
+  confirmRestore -->|"Sí"| restore
+  restore --> write
+  edit --> resetDemo
+  resetDemo -->|"Cuenta SaaS"| tenantBlock

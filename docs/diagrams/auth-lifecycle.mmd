@@ -1,0 +1,35 @@
+flowchart LR
+  register["Solicitar registro"]
+  registerRate["Rate limit"]
+  pending[("Cuenta pendiente")]
+  verifyToken[("Token de verificación")]
+  delivery["Proveedor de email — PENDIENTE"]
+  verify["Abrir enlace + crear clave"]
+  active[("Cuenta activa")]
+  login["Iniciar sesión"]
+  session[("Sesión")]
+  logout["Cerrar sesión"]
+  expiry{"¿Vigente?"}
+  denied["Acceso rechazado"]
+  forgot["Olvidé mi clave"]
+  resetToken[("Token de reset")]
+  reset["Elegir clave nueva"]
+  revoke["Revocar sesiones"]
+  register --> registerRate
+  registerRate --> pending
+  pending --> verifyToken
+  verifyToken -.->|"Enviar"| delivery
+  delivery -.-> verify
+  verify --> active
+  active --> login
+  login --> session
+  session --> logout
+  session --> expiry
+  expiry -->|"No"| denied
+  expiry -->|"Sí"| session
+  active -->|"Recuperar"| forgot
+  forgot --> resetToken
+  resetToken -.->|"Enviar"| delivery
+  resetToken --> reset
+  reset --> revoke
+  revoke -->|"Volver a entrar"| login

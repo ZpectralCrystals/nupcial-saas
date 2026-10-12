@@ -1,0 +1,38 @@
+flowchart LR
+  catalog["Catálogo / probador"]
+  setup["Configurar celebración"]
+  draftSetup[("Borrador navegador")]
+  resume["Reanudar en otra pestaña — PENDIENTE"]
+  auth["Registro / login"]
+  create[("Crear evento")]
+  events["Lista de celebraciones"]
+  active[("Evento activo")]
+  draft["Borrador"]
+  validate{"¿Datos publicables?"}
+  publish["Publicar"]
+  slug[("Slug general")]
+  codes[("Códigos personales")]
+  public["Resolver invitación"]
+  projection["Proyección segura"]
+  unpublish["Despublicar"]
+  invalid["404 controlado"]
+  plans["Planes / mock"]
+  catalog --> setup
+  setup --> draftSetup
+  draftSetup --> auth
+  draftSetup -.-> resume
+  auth --> create
+  create --> events
+  events --> active
+  active --> draft
+  draft --> validate
+  validate -->|"Sí"| publish
+  validate -->|"No"| invalid
+  publish --> slug
+  active --> codes
+  slug --> public
+  codes --> public
+  public --> projection
+  publish --> unpublish
+  unpublish --> invalid
+  active -->|"Opcional"| plans
